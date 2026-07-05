@@ -7,7 +7,7 @@
  * This is a TypeScript port of /home/z/my-project/scripts/generate_cvs.py
  */
 
-import { spawnSync } from "child_process";
+import { spawnSync, execSync } from "child_process";
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -25,9 +25,21 @@ for (const d of [TEX_OUT_DIR, PDF_OUT_DIR]) {
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
 }
 
+// Download tectonic on Vercel if not present
+const ensureTectonic = (): string => {
+  const tectonicPath = "/tmp/tectonic";
+  if (!existsSync(tectonicPath)) {
+    console.log("[tectonic] Downloading...");
+    execSync(
+      "curl -fsSL https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /tmp tectonic && chmod +x /tmp/tectonic",
+      { timeout: 120000 }
+    );
+  }
+  return tectonicPath;
+};
+
 // ---------------------------------------------------------------------------
-// LATEX PREAMBLE (matches the working template from generate_cvs.py)
-// ---------------------------------------------------------------------------
+// LATEX PREAMBLE
 const PREAMBLE = `\\documentclass[10pt,a4paper]{article}
 
 % ── Encoding & fonts ──
