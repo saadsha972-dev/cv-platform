@@ -630,6 +630,12 @@ function HunterTab() {
       const data = await res.json();
       if (data.success) {
         toast({ title: "Email sent!", description: `${data.sent} jobs sent to your inbox.` });
+      } else if (data.needsSetup) {
+        toast({
+          title: "Email not configured",
+          description: "Go to Vercel Settings → Environment Variables and add SMTP_USER (your Gmail) and SMTP_PASS (Gmail App Password from https://myaccount.google.com/apppasswords).",
+          variant: "destructive",
+        });
       } else {
         toast({ title: "Email not sent", description: data.error || data.message, variant: "destructive" });
       }

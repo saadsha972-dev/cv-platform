@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No search profiles found" }, { status: 404 });
     }
 
-    const results: Array<{ profile: string; found: number; saved: number }> = [];
+    const results: Array<{ profile: string; found: number; saved: number; rateLimited?: boolean }> = [];
 
     for (const profile of profiles) {
       console.log(`[search-run] Running profile: ${profile.name}`);

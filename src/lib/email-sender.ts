@@ -32,9 +32,11 @@ const getTransporter = () => {
   const pass = process.env.SMTP_PASS || "";
 
   if (!pass) {
-    throw new Error(
-      "SMTP_PASS environment variable is not set. To enable email alerts, set up a Gmail App Password at https://myaccount.google.com/apppasswords and set SMTP_PASS in your .env file."
+    const err = new Error(
+      "SMTP_PASS environment variable is not set. To enable email alerts, set up a Gmail App Password at https://myaccount.google.com/apppasswords and set SMTP_PASS (and SMTP_USER for the sender email) in your Vercel environment variables."
     );
+    (err as any).code = "SMTP_NOT_CONFIGURED";
+    throw err;
   }
 
   return nodemailer.createTransport({

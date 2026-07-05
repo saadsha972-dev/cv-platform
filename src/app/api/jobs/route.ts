@@ -29,6 +29,9 @@ export async function GET(req: NextRequest) {
         searchProfile: {
           select: { name: true, cvVariant: { select: { slug: true, roleShort: true } } },
         },
+        matches: {
+          include: { cvVariant: { select: { roleShort: true } } },
+        },
       },
     });
 

@@ -88,9 +88,14 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      return NextResponse.json({ success: true, jobId: result.messageId, sent: emailJobs.length });
+      return NextResponse.json({ success: true, messageId: result.messageId, sent: emailJobs.length });
     } else {
-      return NextResponse.json({ success: false, error: result.error }, { status: 500 });
+      // Return 503 if SMTP isn't configured so the frontend can show a setup message
+      const isConfigError = result.error?.includes("SMTP") || result.error?.includes("environment variable");
+      return NextResponse.json(
+        { success: false, error: result.error, needsSetup: isConfigError },
+        { status: isConfigError ? 503 : 500 }
+      );
     }
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Email digest failed" }, { status: 500 });
