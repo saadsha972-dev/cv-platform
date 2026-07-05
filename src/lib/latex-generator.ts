@@ -5,7 +5,7 @@
  * No external binaries needed — works on Vercel's Alpine runtime.
  */
 
-import jsPDF from "jspdf";
+import { jsPDF } from "jspdf";
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
