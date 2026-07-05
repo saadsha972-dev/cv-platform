@@ -8,6 +8,7 @@
  * 4. Score how well a job posting matches a CV variant
  */
 
+import "@/lib/zai-init";
 import ZAI from "z-ai-web-dev-sdk";
 import { CvData } from "./cv-data";
 

@@ -8,6 +8,7 @@
  * then extract structured job data from the results.
  */
 
+import "@/lib/zai-init";
 import ZAI from "z-ai-web-dev-sdk";
 
 let _zai: any = null;
