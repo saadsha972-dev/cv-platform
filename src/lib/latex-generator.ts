@@ -360,7 +360,7 @@ const assembleCvTex = (cv: CvData): string => {
 // COMPILE WITH TECTONIC
 // ---------------------------------------------------------------------------
 const compileTex = (texPath: string, outputDir: string): { pdfPath: string; success: boolean; error?: string } => {
-  const tectonicBin = isVercel ? join(process.cwd(), "tectonic") : "tectonic";
+  const tectonicBin = isVercel ? ensureTectonic() : "tectonic";
   const result = spawnSync(tectonicBin, ["-X", "compile", texPath, "-o", outputDir, "--keep-logs"], {
     captureOutput: true,
     text: true,
