@@ -17,8 +17,9 @@ import { CANDIDATE, CvData, SidebarSection, ExperienceEntry, EarlierCareerEntry 
 // ---------------------------------------------------------------------------
 // PATHS
 // ---------------------------------------------------------------------------
-const TEX_OUT_DIR = join(homedir(), ".cv-platform", "tex_out");
-const PDF_OUT_DIR = join(homedir(), ".cv-platform", "pdfs");
+const isVercel = process.env.VERCEL === "1";
+const TEX_OUT_DIR = isVercel ? "/tmp/cv_tex" : join(homedir(), ".cv-platform", "tex_out");
+const PDF_OUT_DIR = isVercel ? "/tmp/cv_pdfs" : join(homedir(), ".cv-platform", "pdfs");
 
 for (const d of [TEX_OUT_DIR, PDF_OUT_DIR]) {
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
