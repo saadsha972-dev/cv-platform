@@ -255,8 +255,9 @@ const buildCoverLetter = (cv: CvData, jobTitle: string, company?: string, extraK
   const para4 = `I would welcome the opportunity to discuss how my experience can contribute to your team's continued success. Thank you for considering my application; I look forward to the possibility of speaking with you further.`;
 
   return `\\documentclass[11pt,a4paper]{article}
-\\usepackage{fontspec}
-\\setmainfont{Carlito}
+\\usepackage[T1]{fontenc}
+\\usepackage{tgheros}
+\\renewcommand{\\familydefault}{\\sfdefault}
 \\usepackage[a4paper,margin=2.2cm,top=2.0cm,bottom=2.0cm]{geometry}
 \\usepackage{xcolor}
 \\definecolor{accent}{HTML}{1b365d}
