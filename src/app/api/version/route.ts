@@ -3,12 +3,11 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 export async function GET() {
-  let hasPdfmake = false;
-  try { hasPdfmake = !!require("pdfmake/build/vfs_fonts"); } catch {}
   return NextResponse.json({
-    commit: "2220beb",
-    hasPdfmake,
-    VERCEL: process.env.VERCEL,
+    v: "2.1",
+    pdfEngine: "jspdf-v4",
+    VERCEL: process.env.VERCEL === "1",
     NODE: process.version,
+    deployedAt: new Date().toISOString(),
   });
 }
