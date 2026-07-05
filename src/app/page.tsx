@@ -540,7 +540,7 @@ function TailorTab() {
                   CV (PDF)
                 </Button>
                 <Button
-                  onClick={() => downloadPdf(result.coverLetterPdfBase64, `CoverLetter_${(result.jobAnalysis?.company || "Company").replace(/\s+/g, "_")}.pdf`)
+                  onClick={() => downloadPdf(result.coverLetterPdfBase64, `CoverLetter_${(result.jobAnalysis?.company || "Company").replace(/\\s+/g, "_")}.pdf`)}
                   variant="outline"
                   className="border-[#8c7853] text-[#8c7853] hover:bg-[#8c7853]/10"
                 >
