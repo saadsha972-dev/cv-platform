@@ -8,16 +8,10 @@
  * 4. Score how well a job posting matches a CV variant
  */
 
-import { ZAI } from "./zai-init";
+import { createZai } from "./zai-init";
 import { CvData } from "./cv-data";
 
-let _zai: any = null;
-const getZai = async () => {
-  if (!_zai) {
-    _zai = await ZAI.create();
-  }
-  return _zai;
-};
+const getZai = createZai;
 
 // ---------------------------------------------------------------------------
 // JOB POSTING ANALYSIS

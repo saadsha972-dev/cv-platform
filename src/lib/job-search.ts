@@ -8,15 +8,9 @@
  * then extract structured job data from the results.
  */
 
-import { ZAI } from "./zai-init";
+import { createZai } from "./zai-init";
 
-let _zai: any = null;
-const getZai = async () => {
-  if (!_zai) {
-    _zai = await ZAI.create();
-  }
-  return _zai;
-};
+const getZai = createZai;
 
 // ---------------------------------------------------------------------------
 // TYPES
