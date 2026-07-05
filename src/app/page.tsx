@@ -314,22 +314,59 @@ function TailorTab() {
     setResult(null);
 
     try {
+      // Abort after 90 seconds
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 90_000);
+
       const res = await fetch("/api/tailor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobPosting, cvVariantSlug: selectedSlug }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Tailoring failed");
+        let errMsg = `Server error (${res.status})`;
+        try {
+          const err = await res.json();
+          errMsg = err.error || err.step
+            ? `${err.step ? err.step + ": " : ""}${err.error}`
+            : errMsg;
+        } catch {}
+        throw new Error(errMsg);
       }
 
       const data = await res.json();
-      setResult(data);
-      toast({ title: "CV tailored!", description: `Generated for ${data.jobAnalysis.jobTitle} at ${data.jobAnalysis.company}` });
+      // Defensive: ensure all nested fields exist before setting state
+      const safe = {
+        cvPdfBase64: data.cvPdfBase64 || "",
+        coverLetterPdfBase64: data.coverLetterPdfBase64 || "",
+        generatedCvId: data.generatedCvId || "",
+        jobAnalysis: {
+          jobTitle: data.jobAnalysis?.jobTitle || "Unknown",
+          company: data.jobAnalysis?.company || "Unknown",
+          location: data.jobAnalysis?.location || "",
+          industry: data.jobAnalysis?.industry || "",
+          seniority: data.jobAnalysis?.seniority || "",
+          tone: data.jobAnalysis?.tone || "",
+          keywords: Array.isArray(data.jobAnalysis?.keywords) ? data.jobAnalysis.keywords : [],
+          requirements: Array.isArray(data.jobAnalysis?.requirements) ? data.jobAnalysis.requirements : [],
+          responsibilities: Array.isArray(data.jobAnalysis?.responsibilities) ? data.jobAnalysis.responsibilities : [],
+        },
+        tailoredContent: {
+          tailoredSummary: data.tailoredContent?.tailoredSummary || "",
+          matchedKeywords: Array.isArray(data.tailoredContent?.matchedKeywords) ? data.tailoredContent.matchedKeywords : [],
+          missingKeywords: Array.isArray(data.tailoredContent?.missingKeywords) ? data.tailoredContent.missingKeywords : [],
+        },
+      };
+      setResult(safe);
+      toast({ title: "CV tailored!", description: `Generated for ${safe.jobAnalysis.jobTitle} at ${safe.jobAnalysis.company}` });
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      const msg = err.name === "AbortError"
+        ? "Request timed out (90s). The AI analysis is taking too long — try a shorter job posting."
+        : err.message || "Tailoring failed";
+      toast({ title: "CV generation failed", description: msg, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -443,29 +480,31 @@ function TailorTab() {
                   Job Analysis
                 </h4>
                 <div className="space-y-2 text-xs">
-                  <div><span className="text-slate-500">Title:</span> <span className="font-medium">{result.jobAnalysis.jobTitle}</span></div>
-                  <div><span className="text-slate-500">Company:</span> <span className="font-medium">{result.jobAnalysis.company}</span></div>
-                  <div><span className="text-slate-500">Location:</span> <span className="font-medium">{result.jobAnalysis.location}</span></div>
-                  <div><span className="text-slate-500">Industry:</span> <span className="font-medium">{result.jobAnalysis.industry}</span></div>
-                  <div><span className="text-slate-500">Seniority:</span> <span className="font-medium capitalize">{result.jobAnalysis.seniority}</span></div>
+                  <div><span className="text-slate-500">Title:</span> <span className="font-medium">{result.jobAnalysis?.jobTitle || "Unknown"}</span></div>
+                  <div><span className="text-slate-500">Company:</span> <span className="font-medium">{result.jobAnalysis?.company || "Unknown"}</span></div>
+                  {result.jobAnalysis?.location && <div><span className="text-slate-500">Location:</span> <span className="font-medium">{result.jobAnalysis.location}</span></div>}
+                  {result.jobAnalysis?.industry && <div><span className="text-slate-500">Industry:</span> <span className="font-medium">{result.jobAnalysis.industry}</span></div>}
+                  {result.jobAnalysis?.seniority && <div><span className="text-slate-500">Seniority:</span> <span className="font-medium capitalize">{result.jobAnalysis.seniority}</span></div>}
                 </div>
+                {result.jobAnalysis?.keywords?.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-3">
-                  {result.jobAnalysis.keywords.slice(0, 12).map((kw) => (
+                  {result.jobAnalysis.keywords.slice(0, 12).map((kw: string) => (
                     <Badge key={kw} variant="secondary" className="text-[10px] bg-[#8c7853]/10 text-[#8c7853]">
                       {kw}
                     </Badge>
                   ))}
                 </div>
+                )}
               </div>
 
               {/* Keyword Match */}
               <div className="p-4 rounded-lg bg-green-50 border border-green-200">
                 <h4 className="text-sm font-semibold text-green-800 mb-2 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4" />
-                  Matched Keywords ({result.tailoredContent.matchedKeywords.length})
+                  Matched Keywords ({result.tailoredContent?.matchedKeywords?.length || 0})
                 </h4>
                 <div className="flex flex-wrap gap-1">
-                  {result.tailoredContent.matchedKeywords.map((kw) => (
+                  {(result.tailoredContent?.matchedKeywords || []).map((kw: string) => (
                     <Badge key={kw} className="bg-green-100 text-green-700 text-[10px]">
                       {kw}
                     </Badge>
@@ -473,14 +512,14 @@ function TailorTab() {
                 </div>
               </div>
 
-              {result.tailoredContent.missingKeywords.length > 0 && (
+              {(result.tailoredContent?.missingKeywords?.length || 0) > 0 && (
                 <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
                   <h4 className="text-sm font-semibold text-amber-800 mb-2 flex items-center gap-2">
                     <AlertCircle className="w-4 h-4" />
                     Gaps ({result.tailoredContent.missingKeywords.length})
                   </h4>
                   <div className="flex flex-wrap gap-1">
-                    {result.tailoredContent.missingKeywords.map((kw) => (
+                    {result.tailoredContent.missingKeywords.map((kw: string) => (
                       <Badge key={kw} className="bg-amber-100 text-amber-700 text-[10px]">
                         {kw}
                       </Badge>
@@ -494,14 +533,14 @@ function TailorTab() {
               {/* Download Buttons */}
               <div className="grid grid-cols-2 gap-3">
                 <Button
-                  onClick={() => downloadPdf(result.cvPdfBase64, `CV_${result.jobAnalysis.jobTitle.replace(/\s+/g, "_")}.pdf`)}
+                  onClick={() => downloadPdf(result.cvPdfBase64, `CV_${(result.jobAnalysis?.jobTitle || "CV").replace(/\s+/g, "_")}.pdf`)}
                   className="bg-[#1b365d] hover:bg-[#1b365d]/90"
                 >
                   <Download className="w-4 h-4 mr-2" />
                   CV (PDF)
                 </Button>
                 <Button
-                  onClick={() => downloadPdf(result.coverLetterPdfBase64, `CoverLetter_${result.jobAnalysis.company.replace(/\s+/g, "_")}.pdf`)}
+                  onClick={() => downloadPdf(result.coverLetterPdfBase64, `CoverLetter_${(result.jobAnalysis?.company || "Company").replace(/\s+/g, "_")}.pdf`)
                   variant="outline"
                   className="border-[#8c7853] text-[#8c7853] hover:bg-[#8c7853]/10"
                 >
