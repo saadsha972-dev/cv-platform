@@ -8,7 +8,7 @@
  */
 
 import { spawnSync, execSync } from "child_process";
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -30,10 +30,28 @@ const ensureTectonic = (): string => {
   const tectonicPath = "/tmp/tectonic";
   if (!existsSync(tectonicPath)) {
     console.log("[tectonic] Downloading...");
-    execSync(
-      "curl -fsSL https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /tmp tectonic && chmod +x /tmp/tectonic",
-      { timeout: 120000 }
-    );
+    try {
+      execSync(
+        "curl -fsSL https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /tmp tectonic && chmod +x /tmp/tectonic",
+        { timeout: 120000 }
+      );
+    } catch (e: any) {
+      console.error("[tectonic] Download failed:", e.stderr?.toString() || e.message);
+      throw new Error(`Tectonic download failed: ${e.message}`);
+    }
+    // Verify the binary downloaded correctly
+    try {
+      const stats = statSync(tectonicPath);
+      console.log(`[tectonic] Downloaded, size: ${stats.size} bytes`);
+      if (stats.size < 1000000) {
+        try { unlinkSync(tectonicPath); } catch {}
+        throw new Error(`Tectonic binary too small: ${stats.size} bytes (corrupted download?)`);
+      }
+    } catch (e: any) {
+      if (e.message.includes("too small")) throw e;
+      throw new Error(`Tectonic binary not found after download: ${e.message}`);
+    }
+    console.log("[tectonic] Download complete.");
   }
   return tectonicPath;
 };
@@ -361,20 +379,48 @@ const assembleCvTex = (cv: CvData): string => {
 // ---------------------------------------------------------------------------
 const compileTex = (texPath: string, outputDir: string): { pdfPath: string; success: boolean; error?: string } => {
   const tectonicBin = isVercel ? ensureTectonic() : "tectonic";
+
+  // On Vercel, HOME is read-only — point Tectonic cache to /tmp
+  const env = { ...process.env };
+  if (isVercel) {
+    env.HOME = "/tmp";
+    env.XDG_CACHE_HOME = "/tmp";
+  }
+
+  console.log("[tectonic] Compiling:", texPath);
+  console.log("[tectonic] Binary:", tectonicBin);
+  console.log("[tectonic] HOME:", env.HOME);
+
   const result = spawnSync(tectonicBin, ["-X", "compile", texPath, "-o", outputDir, "--keep-logs"], {
     captureOutput: true,
     text: true,
     timeout: 120000,
+    env,
   });
 
+  console.log("[tectonic] Exit code:", result.status);
+  console.log("[tectonic] stderr:", result.stderr?.substring(0, 500));
+  console.log("[tectonic] stdout:", result.stdout?.substring(0, 500));
+
   if (result.status !== 0) {
-    return { pdfPath: "", success: false, error: result.stderr || result.stdout || "Unknown tectonic error" };
+    // Try to read Tectonic .log file for detailed error info
+    let logContent = "";
+    try {
+      const logFile = texPath.replace(/\.tex$/, ".log");
+      if (existsSync(logFile)) {
+        logContent = readFileSync(logFile, "utf-8").slice(-3000);
+      }
+    } catch {}
+
+    const errorDetail = result.stderr || result.stdout || logContent || "Unknown tectonic error (no output captured)";
+    console.error("[tectonic] Compilation failed:", errorDetail);
+    return { pdfPath: "", success: false, error: errorDetail };
   }
 
   const basename = texPath.replace(/\.tex$/, "");
   const pdfPath = `${basename}.pdf`;
   if (!existsSync(pdfPath)) {
-    return { pdfPath: "", success: false, error: "PDF not generated after compile" };
+    return { pdfPath: "", success: false, error: "PDF not generated after compile (exit code 0 but no .pdf file)" };
   }
 
   return { pdfPath, success: true };
