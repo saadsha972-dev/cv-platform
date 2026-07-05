@@ -1,0 +1,271 @@
+/**
+ * LLM Tailor Module
+ * ==================
+ * Uses z-ai-web-dev-sdk to:
+ * 1. Analyze a job posting → extract keywords, requirements, seniority, tone
+ * 2. Tailor a CV variant's summary + bullets to emphasize relevant keywords
+ * 3. Generate a cover letter that addresses the specific job
+ * 4. Score how well a job posting matches a CV variant
+ */
+
+import ZAI from "z-ai-web-dev-sdk";
+import { CvData } from "./cv-data";
+
+let _zai: any = null;
+const getZai = async () => {
+  if (!_zai) {
+    _zai = await ZAI.create();
+  }
+  return _zai;
+};
+
+// ---------------------------------------------------------------------------
+// JOB POSTING ANALYSIS
+// ---------------------------------------------------------------------------
+export interface JobAnalysis {
+  jobTitle: string;
+  company: string;
+  location: string;
+  keywords: string[]; // Top 15 technical/soft skills from the posting
+  requirements: string[];
+  responsibilities: string[];
+  seniority: string; // entry / mid / senior / executive
+  tone: string; // formal / casual / technical / commercial
+  industry: string;
+}
+
+export const analyzeJobPosting = async (postingText: string): Promise<JobAnalysis> => {
+  const prompt = `Analyze the following job posting and extract structured information. Return ONLY valid JSON (no markdown fences, no commentary).
+
+JOB POSTING:
+"""
+${postingText.slice(0, 6000)}
+"""
+
+Return JSON in this exact schema:
+{
+  "jobTitle": "string — exact job title from the posting",
+  "company": "string — company name, or 'Not specified' if unknown",
+  "location": "string — city, country or 'Remote' or 'Not specified'",
+  "keywords": ["array of 15 most important technical/soft skills mentioned, lowercase, no duplicates"],
+  "requirements": ["array of 5-8 key must-have requirements, concise phrases"],
+  "responsibilities": ["array of 5-8 core responsibilities, concise phrases"],
+  "seniority": "entry | mid | senior | executive",
+  "tone": "formal | casual | technical | commercial",
+  "industry": "string — primary industry (e.g., 'Oil & Gas', 'Telecom', 'Construction', 'Retail', 'Consulting')"
+}`;
+
+  const response = await (await getZai()).chat.completions.create({
+    messages: [
+      { role: "system", content: "You are an expert recruitment analyst. Extract structured data from job postings. Always return valid JSON only." },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0.3,
+    max_tokens: 1500,
+  });
+
+  const content = response.choices?.[0]?.message?.content?.trim() || "{}";
+  // Strip any markdown fences if present
+  const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+
+  try {
+    return JSON.parse(cleaned) as JobAnalysis;
+  } catch {
+    return {
+      jobTitle: "Unknown Role",
+      company: "Unknown",
+      location: "Not specified",
+      keywords: [],
+      requirements: [],
+      responsibilities: [],
+      seniority: "senior",
+      tone: "formal",
+      industry: "Unknown",
+    };
+  }
+};
+
+// ---------------------------------------------------------------------------
+// CV TAILORING
+// ---------------------------------------------------------------------------
+export interface TailoredCvContent {
+  tailoredSummary: string;
+  tailoredBullets: Record<string, string[]>; // keyed by job title from timeline
+  matchedKeywords: string[]; // keywords from posting that match the CV
+  missingKeywords: string[]; // keywords from posting NOT in the CV
+  sidebarSoftSkills: string[]; // soft skills/keywords to add to the sidebar
+}
+
+export const tailorCvForJob = async (
+  cv: CvData,
+  analysis: JobAnalysis
+): Promise<TailoredCvContent> => {
+  // Only include entries that are NOT locked (lockTailoring !== true)
+  const tailorableEntries = [...cv.experiencePage1, ...cv.experiencePage2].filter(
+    (e) => !e.lockTailoring
+  );
+  const lockedEntries = [...cv.experiencePage1, ...cv.experiencePage2].filter(
+    (e) => e.lockTailoring
+  );
+
+  const cvBullets = tailorableEntries
+    .map((e) => `- ${e.title} @ ${e.company} (${e.dates}): ${e.bullets.join(" | ")}`)
+    .join("\n");
+
+  const lockedNote = lockedEntries.length
+    ? `\n\nNOTE: The following entries are LOCKED and must NOT be tailored — keep their original bullets unchanged:\n${lockedEntries.map((e) => `- ${e.title} @ ${e.company}`).join("\n")}`
+    : "";
+
+  const prompt = `You are an expert executive CV writer. Tailor the candidate's CV to maximize relevance to a specific job posting. You must be AGGRESSIVE in reordering and rephrasing bullets — but NEVER fabricate new experience, achievements, or skills that aren't in the original.
+
+CANDIDATE'S CV SUMMARY (original):
+${cv.summary}
+
+CANDIDATE'S EXPERIENCE BULLETS (original — only these can be tailored):
+${cvBullets}${lockedNote}
+
+TARGET JOB:
+- Title: ${analysis.jobTitle}
+- Company: ${analysis.company}
+- Industry: ${analysis.industry}
+- Seniority: ${analysis.seniority}
+- Tone: ${analysis.tone}
+- Top Keywords: ${analysis.keywords.join(", ")}
+- Key Requirements: ${analysis.requirements.join("; ")}
+- Key Responsibilities: ${analysis.responsibilities.join("; ")}
+
+YOUR TASKS:
+
+1. REWRITE THE SUMMARY (3-4 sentences, ~80 words): Naturally incorporate the top keywords from the job posting. Lead with the candidate's most relevant qualification for THIS role. Be specific — mention the exact ISO standards, audit types, or skills the job demands. Use EXACT keyword phrases from the job posting where possible.
+
+2. REPHRASE AND REORDER BULLETS (most important task):
+   For EACH tailorable experience entry, rewrite the bullets to lead with the most relevant achievement for this job. Be aggressive:
+   
+   a) REORDER: Put the most relevant bullet FIRST.
+   
+   b) REPHRASE: Rewrite each bullet to emphasize the aspect that aligns with the job. Use EXACT keyword phrases from the job posting naturally. For example, if the job mentions "internal audits," use that exact phrase — don't write "internal compliance audits." If the job mentions "documentation management," weave that exact phrase in where the candidate has relevant experience.
+   
+   c) KEYWORD INTEGRATION CHECKLIST — make sure these exact phrases appear somewhere in the tailored bullets where the candidate has genuine evidence:
+      - "internal audits" (not "internal compliance audits")
+      - "supplier audits"
+      - "documentation management"
+      - "compliance management"
+      - "risk management"
+      - "continuous improvement"
+      - "stakeholder engagement"
+      - "regulatory requirements"
+      - "corrective actions"
+      - "certification processes"
+   
+   d) DEMOTE IRRELEVANT CONTENT: If a role has no relevant experience for this job, keep the bullets factual but brief.
+   
+   e) KEEP BULLETS CONCISE: Each bullet should be 1-2 sentences maximum (~150 characters). Do not merge multiple achievements into one long bullet. Each bullet should be a separate, focused achievement.
+   
+   f) NEVER FABRICATE: Do not invent new achievements, metrics, or skills. Only rephrase, reorder, and emphasize what's already there.
+
+3. SOFT SKILLS FOR SIDEBAR: Identify soft skills and competencies from the job posting that the candidate can legitimately claim (based on their experience). Return these as sidebarSoftSkills — they'll be added to a "KEY COMPETENCIES" section in the sidebar. Examples: "Analytical Skills", "Problem-Solving", "Communication Skills", "Stakeholder Management", "Training & Development", "Regulatory Compliance".
+
+4. IDENTIFY MATCHED KEYWORDS: List which keywords from the job posting the candidate ALREADY has strong evidence for in the CV (after tailoring).
+
+5. IDENTIFY MISSING KEYWORDS: List which keywords from the job posting are NOT evidenced in the CV — be honest.
+
+Return ONLY valid JSON in this schema:
+{
+  "tailoredSummary": "the rewritten 3-4 sentence summary",
+  "tailoredBullets": {
+    "<exact job title from the timeline>": ["rephrased bullet 1 (most relevant first)", "rephrased bullet 2"]
+  },
+  "matchedKeywords": ["keyword1", "keyword2", ...],
+  "missingKeywords": ["keyword1", "keyword2", ...],
+  "sidebarSoftSkills": ["Analytical Skills", "Problem-Solving", "Communication Skills", ...]
+}`;
+
+  const response = await (await getZai()).chat.completions.create({
+    messages: [
+      { role: "system", content: "You are an expert executive CV writer. You NEVER fabricate experience — you only rephrase, reorder, and emphasize existing content. You are AGGRESSIVE in making bullets relevant to the target job. You return valid JSON only." },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0.5,
+    max_tokens: 3500,
+  });
+
+  const content = response.choices?.[0]?.message?.content?.trim() || "{}";
+  const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+
+  try {
+    const parsed = JSON.parse(cleaned) as TailoredCvContent;
+    return {
+      tailoredSummary: parsed.tailoredSummary || cv.summary,
+      tailoredBullets: parsed.tailoredBullets || {},
+      matchedKeywords: parsed.matchedKeywords || [],
+      missingKeywords: parsed.missingKeywords || [],
+      sidebarSoftSkills: parsed.sidebarSoftSkills || [],
+    };
+  } catch {
+    return {
+      tailoredSummary: cv.summary,
+      tailoredBullets: {},
+      matchedKeywords: analysis.keywords.slice(0, 5),
+      missingKeywords: [],
+      sidebarSoftSkills: [],
+    };
+  }
+};
+
+// ---------------------------------------------------------------------------
+// JOB MATCH SCORING
+// ---------------------------------------------------------------------------
+export interface JobMatchResult {
+  matchScore: number; // 0-100
+  rationale: string;
+  topKeywords: string[];
+}
+
+export const scoreJobMatch = async (
+  cv: CvData,
+  jobTitle: string,
+  jobDescription: string,
+  jobKeywords: string[]
+): Promise<JobMatchResult> => {
+  const cvSkills = [
+    ...cv.sidebarPage1.flatMap((s) => s.items.map((i) => (Array.isArray(i) ? i[0] : i))),
+    ...cv.sidebarPage2.flatMap((s) => s.items.map((i) => (Array.isArray(i) ? i[0] : i))),
+  ].join(", ");
+
+  const prompt = `Score how well this candidate's CV matches a job posting. Return ONLY valid JSON.
+
+CANDIDATE PROFILE:
+- Role Focus: ${cv.roleTitle}
+- Summary: ${cv.summary}
+- Skills: ${cvSkills}
+
+JOB:
+- Title: ${jobTitle}
+- Keywords: ${jobKeywords.join(", ")}
+- Description (truncated): ${jobDescription.slice(0, 2000)}
+
+Return JSON:
+{
+  "matchScore": <0-100 integer>,
+  "rationale": "<2-3 sentence explanation of why this CV fits or doesn't fit>",
+  "topKeywords": ["<5 most overlapping skills/keywords>"]
+}`;
+
+  const response = await (await getZai()).chat.completions.create({
+    messages: [
+      { role: "system", content: "You are a recruitment matching AI. Be honest and conservative — only score 80+ if the CV is a strong fit. Return valid JSON only." },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 500,
+  });
+
+  const content = response.choices?.[0]?.message?.content?.trim() || "{}";
+  const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+
+  try {
+    return JSON.parse(cleaned) as JobMatchResult;
+  } catch {
+    return { matchScore: 50, rationale: "Unable to parse match analysis.", topKeywords: [] };
+  }
+};

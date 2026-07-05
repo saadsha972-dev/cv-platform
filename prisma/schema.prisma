@@ -1,0 +1,134 @@
+// Prisma schema for CV Tailor + Job Hunter platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Pre-defined CV templates (6 variants)
+model CvVariant {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  roleTitle   String
+  roleShort   String
+  summary     String
+  // Full CV data as JSON (sidebar sections, experience, earlier career, skills)
+  data        String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  searchProfiles  SearchProfile[]
+  generatedCvs    GeneratedCv[]
+  jobMatches      JobMatch[]
+}
+
+// User's job search profiles (one per CV variant)
+model SearchProfile {
+  id            String   @id @default(cuid())
+  name          String
+  cvVariantId   String
+  // Comma-separated target countries
+  countries     String
+  // Comma-separated target roles / keywords
+  keywords      String
+  // Comma-separated keywords to exclude
+  excludeKeywords String?
+  // Frequency: 'daily' or 'weekly'
+  frequency     String   @default("daily")
+  // Last time a search was run
+  lastRunAt     DateTime?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  cvVariant     CvVariant @relation(fields: [cvVariantId], references: [id])
+  jobPostings   JobPosting[]
+
+  @@index([cvVariantId])
+}
+
+// Found job postings
+model JobPosting {
+  id              String   @id @default(cuid())
+  searchProfileId String
+  title           String
+  company         String
+  location        String?
+  url             String
+  description     String
+  // Source: linkedin, indeed, seek, rozee, glassdoor, google
+  source          String
+  // Match score 0-100 calculated by LLM
+  matchScore      Int      @default(0)
+  // Extracted keywords from the job posting
+  keywords        String?
+  // Status: 'new', 'viewed', 'applied', 'dismissed'
+  status          String   @default("new")
+  // Whether email has been sent
+  emailedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  searchProfile SearchProfile @relation(fields: [searchProfileId], references: [id], onDelete: Cascade)
+  matches       JobMatch[]
+
+  @@index([searchProfileId])
+  @@index([status])
+  @@index([matchScore])
+}
+
+// Many-to-many: which CV variants match a job posting
+model JobMatch {
+  id            String   @id @default(cuid())
+  jobPostingId  String
+  cvVariantId   String
+  matchScore    Int
+  // Tailored summary explaining why this CV fits
+  rationale     String?
+  createdAt     DateTime @default(now())
+
+  jobPosting  JobPosting @relation(fields: [jobPostingId], references: [id], onDelete: Cascade)
+  cvVariant   CvVariant  @relation(fields: [cvVariantId], references: [id])
+
+  @@unique([jobPostingId, cvVariantId])
+  @@index([cvVariantId])
+}
+
+// Generated tailored CVs and cover letters
+model GeneratedCv {
+  id            String   @id @default(cuid())
+  cvVariantId   String
+  // Optional: linked to a job posting
+  jobPostingId  String?
+  jobTitle      String
+  company       String?
+  // The tailored LaTeX source
+  latexContent  String
+  // Path to generated PDF
+  pdfPath       String?
+  // Tailored cover letter text
+  coverLetterText String?
+  // Path to cover letter PDF
+  coverLetterPdfPath String?
+  // Extracted keywords that were emphasized
+  keywords      String?
+  createdAt     DateTime @default(now())
+
+  cvVariant   CvVariant @relation(fields: [cvVariantId], references: [id])
+}
+
+// Email digest log
+model EmailDigest {
+  id            String   @id @default(cuid())
+  recipient     String
+  subject       String
+  jobCount      Int
+  // JSON array of job IDs included
+  jobIds        String
+  sentAt        DateTime @default(now())
+}
