@@ -31,9 +31,9 @@ for (const d of [TEX_OUT_DIR, PDF_OUT_DIR]) {
 const PREAMBLE = `\\documentclass[10pt,a4paper]{article}
 
 % ── Encoding & fonts ──
-\\usepackage{fontspec}
-\\setmainfont{Carlito}
-\\setsansfont{Carlito}
+\\usepackage[T1]{fontenc}
+\\usepackage{tgheros}
+\\renewcommand{\\familydefault}{\\sfdefault}
 
 % ── Page layout ──
 \\usepackage[a4paper,margin=1.3cm,top=1.0cm,bottom=1.0cm]{geometry}
@@ -347,7 +347,8 @@ const assembleCvTex = (cv: CvData): string => {
 // COMPILE WITH TECTONIC
 // ---------------------------------------------------------------------------
 const compileTex = (texPath: string, outputDir: string): { pdfPath: string; success: boolean; error?: string } => {
-  const result = spawnSync("tectonic", ["-X", "compile", texPath, "-o", outputDir, "--keep-logs"], {
+  const tectonicBin = isVercel ? join(process.cwd(), "tectonic") : "tectonic";
+  const result = spawnSync(tectonicBin, ["-X", "compile", texPath, "-o", outputDir, "--keep-logs"], {
     captureOutput: true,
     text: true,
     timeout: 120000,
