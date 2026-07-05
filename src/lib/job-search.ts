@@ -8,8 +8,7 @@
  * then extract structured job data from the results.
  */
 
-import "@/lib/zai-init";
-import ZAI from "z-ai-web-dev-sdk";
+import { ZAI } from "./zai-init";
 
 let _zai: any = null;
 const getZai = async () => {
