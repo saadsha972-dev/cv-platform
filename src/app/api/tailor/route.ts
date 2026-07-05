@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
       console.log(`[tailor] ✓ Added KEY COMPETENCIES section with ${Math.min(tailored.sidebarSoftSkills.length, 6)} soft skills`);
     }
 
-    console.log(`[tailor] Generating PDFs with Tectonic...`);
+    console.log(`[tailor] Generating PDFs with jsPDF...`);
     const result = await generateCvPdfs(tailoredCv, {
       jobTitle: analysis.jobTitle,
       company: analysis.company,
