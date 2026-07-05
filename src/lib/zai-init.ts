@@ -1,35 +1,107 @@
 /**
- * Z-AI SDK Wrapper
- * =================
- * The z-ai-web-dev-sdk's ZAI.create() reads .z-ai-config from disk,
- * which doesn't exist on Vercel. This module creates ZAI instances
- * directly with hardcoded config, bypassing the file lookup entirely.
+ * LLM Client — replaces z-ai-web-dev-sdk with Groq (free, public API)
+ * ====================================================================
+ * The z-ai-web-dev-sdk connects to internal-api.z.ai which is a private
+ * endpoint (172.25.x.x) unreachable from Vercel. Groq provides the same
+ * OpenAI-compatible API, is free, and is accessible from anywhere.
+ *
+ * Set GROQ_API_KEY env var in Vercel (get one at https://console.groq.com/keys).
+ * Falls back to proxying through the Space-Z deployment if no key is set.
  */
 
-import ZAI_SDK from "z-ai-web-dev-sdk";
+// Minimal type for what we use from the SDK
+interface ChatCompletionResponse {
+  choices?: Array<{ message?: { content?: string } }>;
+}
 
-const CONFIG = {
-  baseUrl: "https://internal-api.z.ai/v1",
-  apiKey: "Z.ai",
-  chatId: "chat-a7e1e7fb-7637-4a4c-9182-5956ba0dbf1b",
-  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMmIzMGFhOWItNzJlOS00MzQ3LWIwMWItY2NmOGRiMTY4ZmY0IiwiY2hhdF9pZCI6ImNoYXQtYTdlMWU3ZmItNzYzNy00YTRjLTkxODItNTk1NmJhMGRiZjFiIiwicGxhdGZvcm0iOiJ6YWkifQ.kPUg56QaKKg07kunr_sWai72rZ3Ew5c6tIWOYSc8ZkY",
-  userId: "2b30aa9b-72e9-4347-b01b-ccf8db168ff4",
+interface ZaiLike {
+  chat: {
+    completions: {
+      create: (body: any) => Promise<ChatCompletionResponse>;
+    };
+  };
+  functions: {
+    invoke: (name: string, body: any) => Promise<any>;
+  };
+}
+
+// --- Groq direct client ---
+const createGroqClient = (apiKey: string): ZaiLike => {
+  const baseUrl = "https://api.groq.com/openai/v1";
+
+  const chatCreate = async (body: any): Promise<ChatCompletionResponse> => {
+    const model = body.model || "llama-3.3-70b-versatile";
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ ...body, model }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`Groq API ${res.status}: ${errText.slice(0, 200)}`);
+    }
+    return res.json();
+  };
+
+  // Web search is not available via Groq — return empty results
+  const invoke = async (name: string, _body: any) => {
+    if (name === "web_search") {
+      console.log("[groq] web_search not available — returning empty results");
+      return [];
+    }
+    throw new Error(`Unknown function: ${name}`);
+  };
+
+  return { chat: { completions: { create: chatCreate } }, functions: { invoke } };
 };
 
-// Allow env var overrides
-if (process.env.ZAI_BASE_URL) (CONFIG as any).baseUrl = process.env.ZAI_BASE_URL;
-if (process.env.ZAI_API_KEY) (CONFIG as any).apiKey = process.env.ZAI_API_KEY;
-if (process.env.ZAI_CHAT_ID) (CONFIG as any).chatId = process.env.ZAI_CHAT_ID;
-if (process.env.ZAI_TOKEN) (CONFIG as any).token = process.env.ZAI_TOKEN;
-if (process.env.ZAI_USER_ID) (CONFIG as any).userId = process.env.ZAI_USER_ID;
+// --- Proxy client (falls back to Space-Z proxy) ---
+const createProxyClient = (): ZaiLike => {
+  const proxyBaseUrl = process.env.SPACE_Z_PROXY || "https://z18n25jy39x1-d.space-z.ai";
 
-// Singleton — create once, reuse across all API routes in the same serverless instance
-let _instance: any = null;
+  const chatCreate = async (body: any): Promise<ChatCompletionResponse> => {
+    const res = await fetch(`${proxyBaseUrl}/api/ai-complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`Proxy API ${res.status}: ${errText.slice(0, 200)}`);
+    }
+    return res.json();
+  };
 
-export const createZai = async () => {
-  if (!_instance) {
-    console.log("[zai] Creating ZAI instance with built-in config");
-    _instance = new (ZAI_SDK as any)(CONFIG);
+  const invoke = async (name: string, body: any) => {
+    const res = await fetch(`${proxyBaseUrl}/api/ai-function`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, ...body }),
+    });
+    if (!res.ok) throw new Error(`Proxy function ${res.status}`);
+    return res.json();
+  };
+
+  return { chat: { completions: { create: chatCreate } }, functions: { invoke } };
+};
+
+// --- Singleton ---
+let _instance: ZaiLike | null = null;
+
+export const createZai = async (): Promise<ZaiLike> => {
+  if (_instance) return _instance;
+
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    console.log("[llm] Using Groq API for LLM calls");
+    _instance = createGroqClient(groqKey);
+  } else {
+    console.log("[llm] No GROQ_API_KEY set — using Space-Z proxy fallback");
+    _instance = createProxyClient();
   }
+
   return _instance;
 };
