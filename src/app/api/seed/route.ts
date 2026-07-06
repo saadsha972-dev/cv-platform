@@ -95,18 +95,22 @@ export async function GET() {
       variantsCreated++;
     }
 
-    // Seed/update search profiles
+    // Seed/update search profiles — match by cvVariantSlug
     for (const profile of SEARCH_PROFILES) {
       const cv = await db.cvVariant.findUnique({ where: { slug: profile.cvVariantSlug } });
       if (!cv) continue;
 
-      const existing = await db.searchProfile.findFirst({ where: { name: profile.name } });
+      // Find existing profile for this CV variant and update it
+      const existing = await db.searchProfile.findFirst({
+        where: { cvVariantId: cv.id },
+      });
 
       if (existing) {
-        // Update existing profile with new countries/keywords
+        // Update existing profile with new countries/keywords/name
         await db.searchProfile.update({
           where: { id: existing.id },
           data: {
+            name: profile.name,
             countries: profile.countries,
             keywords: profile.keywords,
             excludeKeywords: profile.excludeKeywords,
