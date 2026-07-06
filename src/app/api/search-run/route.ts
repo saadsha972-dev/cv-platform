@@ -15,23 +15,6 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
-    // Check if required API keys are set
-    const missing: string[] = [];
-    if (!process.env.GROQ_API_KEY) missing.push("GROQ_API_KEY");
-    if (!process.env.SERPER_API_KEY) missing.push("SERPER_API_KEY");
-
-    if (missing.length) {
-      return NextResponse.json({
-        success: false,
-        needsSetup: true,
-        error: `Missing API keys: ${missing.join(", ")}. Add them in Vercel → Settings → Environment Variables.`,
-        setup: {
-          GROQ_API_KEY: "Free at https://console.groq.com/keys — used for AI job scoring",
-          SERPER_API_KEY: "Free at https://serper.dev — used for Google job search (2,500 free queries/month)",
-        },
-      }, { status: 400 });
-    }
-
     const body = await req.json().catch(() => ({}));
     const { profileId } = body as { profileId?: string };
 

@@ -172,11 +172,7 @@ const extractLocation = (title: string, snippet: string): string => {
 // MAIN SEARCH FUNCTION
 // ---------------------------------------------------------------------------
 export const searchJobs = async (profile: SearchProfileConfig): Promise<JobSearchResult[]> => {
-  const apiKey = process.env.SERPER_API_KEY;
-  if (!apiKey) {
-    console.log("[job-search] No SERPER_API_KEY set — returning empty results");
-    return [];
-  }
+  const apiKey = process.env.SERPER_API_KEY || "89280a05e2a42179789766db50570d66f5d52b1e";
 
   const allResults: JobSearchResult[] = [];
   const seenUrls = new Set<string>();
