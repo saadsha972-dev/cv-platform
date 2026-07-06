@@ -19,109 +19,76 @@ export const maxDuration = 120;
 const SERPER_KEY = "89280a05e2a42179789766db50570d66f5d52b1e";
 
 // ---------------------------------------------------------------------------
-// REMOTE-RELEVANT ROLE QUERIES (~20 broad queries across 7 categories)
-// Each includes "remote" and excludes noise (training, course, intern, junior)
+// GENERIC REMOTE QUERIES — no role filters, just "remote jobs"
 // ---------------------------------------------------------------------------
 const REMOTE_QUERIES = [
-  // 1. Quality & Compliance (4 queries)
-  '"remote" "Quality Manager" OR "QA Manager" OR "QC Manager" -training -course -intern -junior',
-  '"remote" "Compliance Manager" OR "Regulatory Affairs Manager" -training -course -intern -junior',
-  '"remote" "QMS Manager" OR "Quality Systems Manager" OR "Quality Assurance Manager" -training -course -intern -junior',
-  '"remote" "ISO Auditor" OR "Compliance Auditor" OR "Internal Auditor" OR "Lead Auditor" -training -course -intern -junior',
-
-  // 2. HSE & Safety (3 queries)
-  '"remote" "HSE Manager" OR "EHS Manager" OR "Health Safety Environment" -training -course -intern -junior',
-  '"remote" "Safety Manager" OR "Safety Director" OR "Environmental Health Safety" -training -course -intern -junior',
-  '"remote" "Environmental Manager" OR "Sustainability Manager" OR "ISO 14001" -training -course -intern -junior',
-
-  // 3. Operations & Process (3 queries)
-  '"remote" "Operations Manager" OR "Operations Director" -training -course -intern -junior',
-  '"remote" "Process Improvement Manager" OR "Lean Manager" OR "Six Sigma" -training -course -intern -junior',
-  '"remote" "Continuous Improvement Manager" OR "Operational Excellence" -training -course -intern -junior',
-
-  // 4. Management & Leadership (3 queries)
-  '"remote" "Regional Manager" OR "Area Manager" OR "Territory Manager" -training -course -intern -junior',
-  '"remote" "Project Manager" OR "Senior Project Manager" -training -course -intern -junior',
-  '"remote" "Program Manager" OR "Portfolio Manager" -training -course -intern -junior',
-
-  // 5. Sales & Business Dev (2 queries)
-  '"remote" "Account Manager" OR "Senior Account Manager" OR "Strategic Account Manager" -training -course -intern -junior',
-  '"remote" "Business Development Manager" OR "BD Manager" OR "Sales Manager" -training -course -intern -junior',
-
-  // 6. Training & Consulting (2 queries)
-  '"remote" "Training Manager" OR "L&D Manager" OR "Learning and Development" -training -course -intern -junior',
-  '"remote" "Management Consultant" OR "Senior Consultant" OR "Business Consultant" -training -course -intern -junior',
-
-  // 7. Supply Chain & Procurement (2 queries)
-  '"remote" "Supply Chain Manager" OR "Supply Chain Director" -training -course -intern -junior',
-  '"remote" "Vendor Manager" OR "Procurement Manager" OR "Supplier Quality Manager" -training -course -intern -junior',
+  // Broad senior/managerial remote jobs
+  '"remote" "manager" OR "director" OR "senior" OR "lead" jobs -training -course -intern -junior -graduate',
+  '"remote" "specialist" OR "coordinator" OR "consultant" jobs -training -course -intern -junior -graduate',
+  // Generic by seniority level
+  '"remote" jobs hiring ("manager" OR "director" OR "head of" OR "vp" OR "lead") -training -course -intern -junior',
+  // Broad function-agnostic
+  '"remote jobs" ("manager" OR "director" OR "senior manager" OR "team lead") -training -course -intern -junior',
 ];
 
 // ---------------------------------------------------------------------------
-// PER-COUNTRY CONFIGS
-// 2 LinkedIn site-specific queries + 2 general queries per country
+// PER-COUNTRY CONFIGS — generic "remote" + managerial, no role-specific filters
 // ---------------------------------------------------------------------------
 const COUNTRY_CONFIGS = [
   {
     country: "USA",
     gl: "us",
     siteQueries: [
-      // Broad management/leadership
-      'site:linkedin.com/jobs "remote" "manager" OR "director" ("quality" OR "operations" OR "compliance" OR "HSE" OR "project" OR "sales" OR "business development") USA -training -course -intern -junior',
-      // Broad auditor/compliance/quality
-      'site:linkedin.com/jobs "remote" ("auditor" OR "compliance" OR "quality" OR "process improvement" OR "Lean" OR "Six Sigma") ("manager" OR "lead" OR "senior" OR "specialist") USA -training -course -intern -junior',
+      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") USA -training -course -intern -junior -graduate',
+      'site:linkedin.com/jobs "remote" ("specialist" OR "consultant" OR "coordinator") ("senior" OR "lead" OR "manager") USA -training -course -intern -junior',
     ],
     generalQueries: [
-      '"remote" "Quality Manager" OR "Operations Manager" OR "Compliance Manager" OR "Project Manager" jobs USA -training -course -intern -junior',
-      '"remote" "HSE Manager" OR "Business Development Manager" OR "Process Improvement" OR "Supply Chain Manager" jobs USA -training -course -intern -junior',
+      '"remote" jobs ("manager" OR "director" OR "senior") USA -training -course -intern -junior -graduate',
+      '"remote" ("senior manager" OR "team lead" OR "head of") jobs USA -training -course -intern -junior',
     ],
   },
   {
     country: "Germany",
     gl: "de",
     siteQueries: [
-      'site:linkedin.com/jobs "remote" "manager" OR "director" ("quality" OR "operations" OR "compliance" OR "HSE" OR "project" OR "sales" OR "business development") Germany -training -course -intern -junior',
-      'site:linkedin.com/jobs "remote" ("auditor" OR "compliance" OR "quality" OR "process improvement" OR "Lean" OR "Six Sigma") ("manager" OR "lead" OR "senior" OR "specialist") Germany -training -course -intern -junior',
+      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") Germany -training -course -intern -junior -graduate',
+      'site:stepstone.de "remote" ("manager" OR "director" OR "senior") -training -course -intern -junior',
     ],
     generalQueries: [
-      '"remote" "Quality Manager" OR "Operations Manager" OR "Compliance Manager" OR "Project Manager" jobs Germany -training -course -intern -junior',
-      '"remote" "HSE Manager" OR "Business Development Manager" OR "Process Improvement" OR "Supply Chain Manager" jobs Germany -training -course -intern -junior',
+      '"remote" jobs ("manager" OR "director" OR "senior") Germany -training -course -intern -junior -graduate',
     ],
   },
   {
     country: "United Kingdom",
     gl: "uk",
     siteQueries: [
-      'site:linkedin.com/jobs "remote" "manager" OR "director" ("quality" OR "operations" OR "compliance" OR "HSE" OR "project" OR "sales" OR "business development") UK -training -course -intern -junior',
-      'site:linkedin.com/jobs "remote" ("auditor" OR "compliance" OR "quality" OR "process improvement" OR "Lean" OR "Six Sigma") ("manager" OR "lead" OR "senior" OR "specialist") UK -training -course -intern -junior',
+      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") UK -training -course -intern -junior -graduate',
+      'site:indeed.co.uk "remote" ("manager" OR "director" OR "senior") -training -course -intern -junior',
     ],
     generalQueries: [
-      'site:indeed.co.uk "remote" "Quality Manager" OR "Operations Manager" OR "Compliance Manager" OR "Project Manager" -training -course -intern -junior',
-      '"remote" "HSE Manager" OR "Business Development Manager" OR "Process Improvement" OR "Supply Chain Manager" jobs UK -training -course -intern -junior',
+      '"remote" jobs ("manager" OR "director" OR "senior") UK -training -course -intern -junior -graduate',
     ],
   },
   {
     country: "Australia",
     gl: "au",
     siteQueries: [
-      'site:linkedin.com/jobs "remote" "manager" OR "director" ("quality" OR "operations" OR "compliance" OR "HSE" OR "project" OR "sales" OR "business development") Australia -training -course -intern -junior',
-      'site:linkedin.com/jobs "remote" ("auditor" OR "compliance" OR "quality" OR "process improvement" OR "Lean" OR "Six Sigma") ("manager" OR "lead" OR "senior" OR "specialist") Australia -training -course -intern -junior',
+      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") Australia -training -course -intern -junior -graduate',
+      'site:seek.com.au "remote" ("manager" OR "director" OR "senior") -training -course -intern',
     ],
     generalQueries: [
-      'site:seek.com.au "remote" "Quality Manager" OR "Operations Manager" OR "Compliance Manager" OR "Project Manager" -training -course -intern -junior',
-      '"remote" "HSE Manager" OR "Business Development Manager" OR "Process Improvement" OR "Supply Chain Manager" jobs Australia -training -course -intern -junior',
+      '"remote" jobs ("manager" OR "director" OR "senior") Australia -training -course -intern -junior -graduate',
     ],
   },
   {
     country: "Canada",
     gl: "ca",
     siteQueries: [
-      'site:linkedin.com/jobs "remote" "manager" OR "director" ("quality" OR "operations" OR "compliance" OR "HSE" OR "project" OR "sales" OR "business development") Canada -training -course -intern -junior',
-      'site:linkedin.com/jobs "remote" ("auditor" OR "compliance" OR "quality" OR "process improvement" OR "Lean" OR "Six Sigma") ("manager" OR "lead" OR "senior" OR "specialist") Canada -training -course -intern -junior',
+      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") Canada -training -course -intern -junior -graduate',
+      'site:indeed.ca "remote" ("manager" OR "director" OR "senior") -training -course -intern -junior',
     ],
     generalQueries: [
-      'site:indeed.ca "remote" "Quality Manager" OR "Operations Manager" OR "Compliance Manager" OR "Project Manager" -training -course -intern -junior',
-      '"remote" "HSE Manager" OR "Business Development Manager" OR "Process Improvement" OR "Supply Chain Manager" jobs Canada -training -course -intern -junior',
+      '"remote" jobs ("manager" OR "director" OR "senior") Canada -training -course -intern -junior -graduate',
     ],
   },
 ];
@@ -130,16 +97,14 @@ const COUNTRY_CONFIGS = [
 // GLOBAL REMOTE QUERIES (no country filter — targets major remote job boards)
 // ---------------------------------------------------------------------------
 const GLOBAL_QUERIES = [
-  // Major remote job boards — management & leadership
-  'site:weworkremotely.com OR site:remoteok.com OR site:flexjobs.com ("Quality Manager" OR "Operations Manager" OR "Compliance Manager" OR "Project Manager" OR "Program Manager") -training -course -intern -junior',
-  // Major remote job boards — sales, consulting, supply chain
-  'site:weworkremotely.com OR site:remoteok.com OR site:flexjobs.com ("Account Manager" OR "Business Development" OR "Management Consultant" OR "Supply Chain Manager" OR "Process Improvement") -training -course -intern -junior',
-  // LinkedIn global — broad catch-all
-  'site:linkedin.com/jobs "remote" ("Quality Manager" OR "HSE Manager" OR "Compliance Manager" OR "Operations Manager" OR "Project Manager" OR "Business Development Manager") -training -course -intern -junior',
-  // Indeed global — broad catch-all
-  'site:indeed.com "remote" ("Quality Manager" OR "HSE Manager" OR "Compliance Manager" OR "Operations Manager" OR "Project Manager" OR "Business Development Manager") -training -course -intern -junior',
-  // Generic broad search across all skill areas
-  '"remote" ("Quality Manager" OR "QMS Manager" OR "HSE Manager" OR "Operations Manager" OR "Compliance Manager" OR "Project Manager" OR "Business Development Manager" OR "Process Improvement" OR "Management Consultant" OR "Supply Chain Manager") -training -course -intern -junior',
+  // Major remote job boards — all management/leadership roles
+  'site:weworkremotely.com OR site:remoteok.com OR site:flexjobs.com ("manager" OR "director" OR "head of" OR "senior" OR "lead") -training -course -intern -junior',
+  // LinkedIn global — broad managerial remote
+  'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "team lead" OR "head of") -training -course -intern -junior',
+  // Indeed global — broad managerial remote
+  'site:indeed.com "remote" ("manager" OR "director" OR "senior" OR "lead" OR "specialist") -training -course -intern -junior',
+  // Generic broad remote search
+  '"remote jobs" ("manager" OR "director" OR "senior" OR "lead" OR "consultant") hiring -training -course -intern -junior -graduate',
 ];
 
 interface RemoteJob {

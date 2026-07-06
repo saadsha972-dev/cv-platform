@@ -258,16 +258,6 @@ export const searchJobs = async (profile: SearchProfileConfig): Promise<JobSearc
     }
   }
 
-  // Remote-specific queries (high value for international candidates)
-  queries.push({
-    q: `"${primaryKeyword}" remote jobs -training -course -intern`,
-    gl: "us",
-  });
-  queries.push({
-    q: `site:linkedin.com/jobs "${primaryKeyword}" remote hiring`,
-    gl: "us",
-  });
-
   // One broad query with multiple keywords
   if (secondKeyword !== primaryKeyword) {
     queries.push({
