@@ -29,11 +29,11 @@ export interface JobAnalysis {
 }
 
 export const analyzeJobPosting = async (postingText: string): Promise<JobAnalysis> => {
-  const prompt = `Analyze the following job posting and extract structured information. Return ONLY valid JSON (no markdown fences, no commentary).
+  const prompt = `Analyze the following job posting thoroughly and extract ALL structured information. Be EXHAUSTIVE with keywords — extract every single technical skill, tool, methodology, certification, qualification, soft skill, industry term, and domain expertise mentioned anywhere in the posting. Return ONLY valid JSON (no markdown fences, no commentary).
 
 JOB POSTING:
 """
-${postingText.slice(0, 6000)}
+${postingText.slice(0, 8000)}
 """
 
 Return JSON in this exact schema:
@@ -41,9 +41,9 @@ Return JSON in this exact schema:
   "jobTitle": "string — exact job title from the posting",
   "company": "string — company name, or 'Not specified' if unknown",
   "location": "string — city, country or 'Remote' or 'Not specified'",
-  "keywords": ["array of 15 most important technical/soft skills mentioned, lowercase, no duplicates"],
-  "requirements": ["array of 5-8 key must-have requirements, concise phrases"],
-  "responsibilities": ["array of 5-8 core responsibilities, concise phrases"],
+  "keywords": ["array of up to 30 most important keywords extracted from the posting — include EVERY technical skill, tool, platform, methodology, certification, software, framework, standard, regulation, and domain expertise mentioned. Also include key soft skills and competencies. Lowercase, no duplicates. Be EXHAUSTIVE — scan every sentence for skills and terms."],
+  "requirements": ["array of ALL key requirements mentioned, 8-12 items, concise phrases — include qualifications, experience years, certifications, technical skills, tools, methodologies"],
+  "responsibilities": ["array of ALL core responsibilities, 8-12 items, concise phrases"],
   "seniority": "entry | mid | senior | executive",
   "tone": "formal | casual | technical | commercial",
   "industry": "string — primary industry (e.g., 'Oil & Gas', 'Telecom', 'Construction', 'Retail', 'Consulting')"
@@ -55,7 +55,7 @@ Return JSON in this exact schema:
       { role: "user", content: prompt },
     ],
     temperature: 0.3,
-    max_tokens: 1500,
+    max_tokens: 2500,
   });
 
   const content = response.choices?.[0]?.message?.content?.trim() || "{}";
@@ -63,7 +63,12 @@ Return JSON in this exact schema:
   const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
 
   try {
-    return JSON.parse(cleaned) as JobAnalysis;
+    const parsed = JSON.parse(cleaned) as JobAnalysis;
+    // Ensure keywords array is deduplicated and cleaned
+    if (parsed.keywords) {
+      parsed.keywords = [...new Set(parsed.keywords.map((k: string) => k.toLowerCase().trim()).filter(Boolean))];
+    }
+    return parsed;
   } catch {
     return {
       jobTitle: "Unknown Role",
@@ -149,7 +154,7 @@ YOUR TASKS:
    
    b) REPHRASE: Rewrite each bullet to emphasize the aspect that aligns with the job. Use EXACT keyword phrases from the job posting's requirements and responsibilities sections naturally. Weave the posting's own terminology into the candidate's genuine experience.
    
-   c) KEYWORD INTEGRATION: Identify the 8-10 most important exact keyword phrases from the job posting's requirements and responsibilities. Make sure these exact phrases appear somewhere in the tailored bullets where the candidate has genuine evidence. Prioritize phrases that the posting uses repeatedly or emphasizes.
+   c) KEYWORD INTEGRATION (CRITICAL): Extract ALL 15-20 most important exact keyword phrases from the job posting's requirements and responsibilities sections. These include technical terms, methodologies, tools, certifications, industry jargon, action verbs, and competency phrases. Make sure EVERY single one of these keywords appears somewhere in the tailored bullets where the candidate has genuine evidence. Weave the posting's own terminology naturally into the candidate's experience. Prioritize phrases that the posting uses repeatedly, emphasizes, or lists as requirements.
    
    d) DEMOTE IRRELEVANT CONTENT: If a role has no relevant experience for this job, keep the bullets factual but brief.
    
@@ -196,7 +201,7 @@ Return ONLY valid JSON in this schema:
       { role: "user", content: prompt },
     ],
     temperature: 0.5,
-    max_tokens: 5000,
+    max_tokens: 6000,
   });
 
   const content = response.choices?.[0]?.message?.content?.trim() || "{}";

@@ -16,7 +16,7 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { jobPosting, cvVariantSlug, jobTitle, company, customSummary, customSkills, customBullets } = body as { jobPosting: string; cvVariantSlug: string; jobTitle?: string; company?: string; customSummary?: string; customSkills?: string; customBullets?: string };
+    const { jobPosting, cvVariantSlug, jobTitle, company, customSummary, customSkills, customBullets, customQualifications, customLanguages, customTrainings, customEducation } = body as { jobPosting: string; cvVariantSlug: string; jobTitle?: string; company?: string; customSummary?: string; customSkills?: string; customBullets?: string; customQualifications?: string; customLanguages?: string; customTrainings?: string; customEducation?: string };
 
     if (!jobPosting || !cvVariantSlug) {
       return NextResponse.json({ error: "jobPosting and cvVariantSlug are required" }, { status: 400 });
@@ -187,6 +187,71 @@ export async function POST(req: NextRequest) {
         },
         ...restSections,
       ];
+    }
+
+    // Apply custom qualifications, languages, trainings, education overrides
+    const parsePairLines = (text: string): Array<[string, string]> => {
+      return text.split("\n").map(l => l.trim()).filter(Boolean).map(line => {
+        const parts = line.split(" — ");
+        return parts.length >= 2 ? [parts[0].trim(), parts.slice(1).join(" — ").trim()] : [line, ""];
+      });
+    };
+
+    if (customQualifications?.trim()) {
+      const pairs = parsePairLines(customQualifications);
+      if (pairs.length > 0) {
+        // Replace the 2nd sidebar section (index 1) or add one
+        const sb1 = [...tailoredCv.sidebarPage1];
+        if (sb1.length > 1 && !sb1[1].title.toUpperCase().includes("LANG")) {
+          sb1[1] = { ...sb1[1], title: sb1[1].title, items: pairs };
+        } else {
+          sb1.splice(1, 0, { title: "KEY QUALIFICATIONS", items: pairs });
+        }
+        tailoredCv.sidebarPage1 = sb1;
+      }
+    }
+
+    if (customLanguages?.trim()) {
+      const langItems = customLanguages.split("\n").map(l => l.trim()).filter(Boolean);
+      if (langItems.length > 0) {
+        const sb1 = [...tailoredCv.sidebarPage1];
+        const langIdx = sb1.findIndex(s => s.title.toUpperCase().includes("LANG"));
+        if (langIdx >= 0) {
+          sb1[langIdx] = { ...sb1[langIdx], items: langItems };
+        } else {
+          sb1.push({ title: "LANGUAGES", items: langItems });
+        }
+        tailoredCv.sidebarPage1 = sb1;
+      }
+    }
+
+    if (customTrainings?.trim()) {
+      const pairs = parsePairLines(customTrainings);
+      if (pairs.length > 0) {
+        const sb2 = [...tailoredCv.sidebarPage2];
+        // Replace first non-education section or first section
+        const trainIdx = sb2.findIndex(s => !s.title.toUpperCase().includes("EDUCATION") && !s.title.toUpperCase().includes("SKILL PROF") && !s.title.toUpperCase().includes("METRIC") && !s.title.toUpperCase().includes("HIGHLIGHT"));
+        if (trainIdx >= 0) {
+          sb2[trainIdx] = { ...sb2[trainIdx], title: sb2[trainIdx].title, items: pairs };
+        } else {
+          sb2.unshift({ title: "BUSINESS TRAININGS", items: pairs });
+        }
+        tailoredCv.sidebarPage2 = sb2;
+      }
+    }
+
+    if (customEducation?.trim()) {
+      const pairs = parsePairLines(customEducation);
+      if (pairs.length > 0) {
+        const sb2 = [...tailoredCv.sidebarPage2];
+        const eduIdx = sb2.findIndex(s => s.title.toUpperCase().includes("EDUCATION"));
+        if (eduIdx >= 0) {
+          sb2[eduIdx] = { ...sb2[eduIdx], title: sb2[eduIdx].title, items: pairs };
+        } else {
+          sb2.push({ title: "EDUCATION", items: pairs });
+        }
+        tailoredCv.sidebarPage2 = sb2;
+      }
     }
 
     // --- STEP 3: Generate PDFs ---

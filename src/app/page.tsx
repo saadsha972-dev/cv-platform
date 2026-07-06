@@ -241,7 +241,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm text-[#1b365d] truncate">{job.title}</div>
                     <div className="text-xs text-slate-500 mt-0.5">
-                      {job.company} · {job.location} · <span className="uppercase">{job.source}</span>
+                      {job.company} · {job.location}
                     </div>
                   </div>
                   <Badge
@@ -288,7 +288,11 @@ function TailorTab() {
   const [customSummary, setCustomSummary] = useState("");
   const [customSkills, setCustomSkills] = useState("");
   const [customBullets, setCustomBullets] = useState("");
-  const [showEditor, setShowEditor] = useState(false);
+  const [customQualifications, setCustomQualifications] = useState("");
+  const [customLanguages, setCustomLanguages] = useState("");
+  const [customTrainings, setCustomTrainings] = useState("");
+  const [customEducation, setCustomEducation] = useState("");
+  const [showEditor, setShowEditor] = useState(true);
   const [loadingCv, setLoadingCv] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -318,16 +322,47 @@ function TailorTab() {
       .then((data) => {
         if (data.cv) {
           setCustomSummary(data.cv.summary || "");
-          // Build skills from sidebarPage1 sections
+          // Build skills / qualifications / languages from sidebarPage1
           const skills: string[] = [];
+          const quals: string[] = [];
+          const langs: string[] = [];
           for (const sec of data.cv.sidebarPage1 || []) {
+            const t = sec.title.toUpperCase();
+            const isLang = t.includes("LANG");
             for (const item of sec.items || []) {
-              if (typeof item === "string") skills.push(item);
-              else if (Array.isArray(item)) skills.push(item[0]);
+              if (typeof item === "string") {
+                if (isLang) langs.push(item);
+                else skills.push(item);
+              }
+              else if (Array.isArray(item)) {
+                if (isLang) langs.push(`${item[0]} — ${item[1]}`);
+                else { skills.push(item[0]); quals.push(`${item[0]} — ${item[1]}`); }
+              }
             }
           }
           setCustomSkills(skills.join("\n"));
-          // Build all bullets
+          setCustomQualifications(quals.join("\n"));
+          setCustomLanguages(langs.join("\n"));
+          // Build trainings / education from sidebarPage2
+          const trains: string[] = [];
+          const edu: string[] = [];
+          for (const sec of data.cv.sidebarPage2 || []) {
+            const t = sec.title.toUpperCase();
+            const isEdu = t.includes("EDUCATION");
+            for (const item of sec.items || []) {
+              if (typeof item === "string") {
+                if (isEdu) edu.push(item);
+                else trains.push(item);
+              }
+              else if (Array.isArray(item)) {
+                if (isEdu) edu.push(`${item[0]} — ${item[1]}`);
+                else trains.push(`${item[0]} — ${item[1]}`);
+              }
+            }
+          }
+          setCustomTrainings(trains.join("\n"));
+          setCustomEducation(edu.join("\n"));
+          // Build all experience bullets
           const allExp = [...(data.cv.experiencePage1 || []), ...(data.cv.experiencePage2 || [])];
           const bulletLines: string[] = [];
           for (const exp of allExp) {
@@ -365,6 +400,10 @@ function TailorTab() {
           customSummary: customSummary.trim() || undefined,
           customSkills: customSkills.trim() || undefined,
           customBullets: customBullets.trim() || undefined,
+          customQualifications: customQualifications.trim() || undefined,
+          customLanguages: customLanguages.trim() || undefined,
+          customTrainings: customTrainings.trim() || undefined,
+          customEducation: customEducation.trim() || undefined,
         }),
         signal: controller.signal,
       });
@@ -472,7 +511,7 @@ function TailorTab() {
             <Label className="flex items-center gap-2 cursor-pointer" onClick={() => setShowEditor(!showEditor)}>
               <Wand2 className="w-3.5 h-3.5 text-[#8c7853]" />
               Edit Full CV Content
-              <span className="text-xs text-slate-400">({showEditor ? "hide" : "show"})</span>
+              <span className="text-xs text-slate-400">({showEditor ? "collapse" : "expand"})</span>
             </Label>
             {showEditor && loadingCv && <Skeleton className="h-20 w-full" />}
             {showEditor && !loadingCv && (
@@ -482,13 +521,29 @@ function TailorTab() {
                   <Textarea value={customSummary} onChange={(e) => setCustomSummary(e.target.value)} className="min-h-[80px] text-sm" placeholder="Your professional summary..." />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-500">Skills & Competencies (one per line)</Label>
-                  <Textarea value={customSkills} onChange={(e) => setCustomSkills(e.target.value)} className="min-h-[100px] text-sm font-mono" placeholder="B2B Enterprise Sales&#10;Key Account Strategy&#10;CRM Systems" />
+                  <Label className="text-xs text-slate-500">Key Competencies (one per line)</Label>
+                  <Textarea value={customSkills} onChange={(e) => setCustomSkills(e.target.value)} className="min-h-[80px] text-sm font-mono" placeholder="B2B Enterprise Sales&#10;Key Account Strategy&#10;CRM Systems" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Key Qualifications (Name — Description, one per line)</Label>
+                  <Textarea value={customQualifications} onChange={(e) => setCustomQualifications(e.target.value)} className="min-h-[60px] text-sm font-mono" placeholder="B2B Enterprise — High-volume accounts&#10;Luxury Retail — Michael Kors, Germany" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Languages (one per line)</Label>
+                  <Textarea value={customLanguages} onChange={(e) => setCustomLanguages(e.target.value)} className="min-h-[60px] text-sm" placeholder="English — Advanced (C1)&#10;Urdu — Native / Bilingual" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Trainings & Certifications (Name — Description, one per line)</Label>
+                  <Textarea value={customTrainings} onChange={(e) => setCustomTrainings(e.target.value)} className="min-h-[60px] text-sm font-mono" placeholder="MSc IMM (UK) — International Marketing&#10;NEBOSH IGC — International General Certificate" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Education (one per line)</Label>
+                  <Textarea value={customEducation} onChange={(e) => setCustomEducation(e.target.value)} className="min-h-[40px] text-sm" placeholder="MSc in International Marketing Management — University of East London" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs text-slate-500">Experience Bullets (use === Job Title @ Company === as separator)</Label>
                   <Textarea value={customBullets} onChange={(e) => setCustomBullets(e.target.value)} className="min-h-[200px] text-sm font-mono" placeholder={"=== Stock Manager @ Michael Kors ===\nGoverned end-to-end retail store operations...\nManaged inventory using SAP ERP...\n\n=== Process Improvement @ Power International ===\nDirected customer satisfaction research..."} />
-                  <p className="text-xs text-slate-400">Edit any text. Lines starting with === are job title headers (do not change those lines). Bullets under each header belong to that role.</p>
+                  <p className="text-xs text-slate-400">Lines starting with === are job title headers. Bullets under each header belong to that role.</p>
                 </div>
               </div>
             )}
@@ -1065,7 +1120,6 @@ function JobCard({ job, onStatusUpdate }: { job: JobPosting; onStatusUpdate: (id
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h4 className="text-sm font-semibold text-[#1b365d]">{job.title}</h4>
-            <Badge variant="outline" className="text-[10px] uppercase">{job.source}</Badge>
             {job.status !== "new" && (
               <Badge className={
                 job.status === "applied" ? "bg-green-100 text-green-700 text-[10px]" :
@@ -1303,7 +1357,6 @@ function RemoteJobsTab() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="text-sm font-semibold text-[#1b365d]">{job.title}</h4>
-                          <Badge variant="outline" className="text-[10px] uppercase">{job.source}</Badge>
                           <Badge className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Remote</Badge>
                         </div>
                         <p className="text-xs text-slate-600 mt-1">
