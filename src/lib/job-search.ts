@@ -33,8 +33,8 @@ async function serperSearch(query: string, apiKey: string, gl?: string): Promise
     q: query,
     num: 20, // More results per query
     hl: "en",
-    // Date recency filter: past WEEK for maximum freshness
-    tbs: "qdr:w",
+    // Date recency filter: past MONTH for better coverage
+    tbs: "qdr:m",
   };
 
   // Set geolocation based on country if possible

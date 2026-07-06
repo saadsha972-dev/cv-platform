@@ -11,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import {
   FileText, Search, Mail, Loader2, Download, ExternalLink, RefreshCw,
@@ -860,7 +859,7 @@ function HunterTab() {
                   <SelectItem value="80">80%+</SelectItem>
                 </SelectContent>
               </Select>
-              <Button onClick={handleSendEmail} disabled={sendingEmail || !jobs.length} variant="outline" className="border-[#8c7853] text-[#8c7853] hover:bg-[#8c7853]/10">
+              <Button onClick={handleSendEmail} disabled={sendingEmail} variant="outline" className="border-[#8c7853] text-[#8c7853] hover:bg-[#8c7853]/10">
                 {sendingEmail ? (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 ) : (
@@ -889,13 +888,13 @@ function HunterTab() {
               <p className="text-xs mt-1">Click "Run Search Now" to find jobs matching your profiles.</p>
             </div>
           ) : (
-            <ScrollArea className="h-[600px] pr-4">
+            <div className="max-h-[80vh] overflow-y-auto pr-2">
               <div className="space-y-3">
                 {jobs.map((job) => (
                   <JobCard key={job.id} job={job} onStatusUpdate={handleStatusUpdate} />
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -1232,7 +1231,7 @@ function RemoteJobsTab() {
               <p className="text-xs mt-1">Click "Search Remote Jobs" to discover remote positions across all industries.</p>
             </div>
           ) : (
-            <ScrollArea className="h-[700px] pr-4">
+            <div className="max-h-[80vh] overflow-y-auto pr-2">
               <div className="space-y-3">
                 {filteredJobs.map((job, idx) => (
                   <div key={`${job.url}-${idx}`} className="p-4 rounded-lg border border-slate-200 hover:border-[#8c7853]/40 transition-colors">
@@ -1266,7 +1265,7 @@ function RemoteJobsTab() {
                   </div>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           )}
         </CardContent>
       </Card>

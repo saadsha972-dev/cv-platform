@@ -1,16 +1,13 @@
 /**
- * PDF CV Generator
- * =================
- * Generates tailored CV and cover letter PDFs using jsPDF (pure JS).
- * No external binaries needed — works on Vercel's Alpine runtime.
- *
- * v6.0 — Professional designer-quality layout:
- *   - Proper font sizes matching sample (11-14pt body, not 7-9pt)
- *   - Generous spacing (1.5x line height)
- *   - Vertical divider line between sidebar and main column
- *   - Tan/light-gray underlines (not loud bronze)
- *   - Clean two-column layout, both white
- *   - Standard bullet character (•) at readable 8pt
+ * PDF CV Generator v7.0 — Clean, Professional, Sample-Matched
+ * ============================================================
+ * Generates tailored CV and cover letter PDFs using jsPDF.
+ * Layout matches the professional sample CV:
+ *   - 35% left sidebar / 65% right main column
+ *   - Dark navy (#002147) headers, gold (#B8860B) accents
+ *   - Proper 10-11pt body text with 1.5x line height
+ *   - Generous white space between sections
+ *   - Clean timeline, consistent bullet styling
  */
 
 import { jsPDF } from "jspdf";
@@ -28,386 +25,375 @@ const PDF_OUT_DIR = isVercel ? "/tmp/cv_pdfs" : join(homedir(), ".cv-platform", 
 if (!existsSync(PDF_OUT_DIR)) mkdirSync(PDF_OUT_DIR, { recursive: true });
 
 // ---------------------------------------------------------------------------
-// LAYOUT CONSTANTS (all in mm, A4 = 210 x 297)
+// LAYOUT (A4 = 210 x 297mm)
 // ---------------------------------------------------------------------------
 const PW = 210;
 const PH = 297;
-const ML = 20;    // 20mm left margin
-const MR = 20;    // 20mm right margin
-const CW = PW - ML - MR; // 170mm content width
+const ML = 18;
+const MR = 18;
+const CW = PW - ML - MR; // 174mm
 
-const SB_W = 55;     // sidebar width (~32% of content)
-const GAP = 8;       // gap between columns
-const MAIN_W = CW - SB_W - GAP; // 107mm main column
+// Column split: 35% sidebar, 65% main
+const SB_W = 60;       // sidebar width
+const GAP = 4;         // gutter
+const MAIN_W = CW - SB_W - GAP; // 110mm
 
-const SB_X = ML;                    // 20mm
-const SB_R = ML + SB_W;            // 75mm
-const DIVIDER_X = SB_R + GAP / 2;  // 79mm — vertical divider position
-const MAIN_X = ML + SB_W + GAP;    // 83mm
-const MAIN_R = ML + CW;            // 190mm
+const SB_X = ML;
+const SB_R = ML + SB_W;          // 78mm
+const MAIN_X = ML + SB_W + GAP;  // 82mm
+const MAIN_R = ML + CW;          // 192mm
 
-// Vertical layout
-const HDR_NAME_Y = 35;
-const HDR_TITLE_Y = 44;
-const HDR_CONTACT_Y = 52;
-const HDR_RULE_Y = 56;
-const CONTENT_TOP = 62;
-
-// Colors — professional, matched to sample
-const CLR = {
-  navy: [0, 43, 92] as [number, number, number],         // #002B5C — deep navy for name, headers, titles
-  tan: [180, 150, 100] as [number, number, number],       // #B49664 — subtle tan for underlines, bullets, rules
-  body: [51, 51, 51] as [number, number, number],         // #333333 — body text
-  midGray: [102, 102, 102] as [number, number, number],   // #666666 — contact, company names
-  lightGray: [136, 136, 136] as [number, number, number],  // #888888 — dates, locations
-  divider: [220, 220, 220] as [number, number, number],    // #DCDCDC — vertical column divider
-  emptyDot: [220, 220, 220] as [number, number, number],   // #DCDCDC — empty skill dots
-  p2Rule: [200, 200, 200] as [number, number, number],    // #C8C8C8 — P2 underlines (lighter)
-};
-
-// Font sizes (pt) — PROPER readable sizes matching the sample
-const FS = {
-  name: 26,          // bold navy centered
-  title: 13,         // regular navy centered
-  contact: 10,       // gray centered
-  sectionHdr: 13,    // bold uppercase navy (main column)
-  sbSectionHdr: 11,  // bold uppercase navy (sidebar)
-  body: 10.5,        // regular dark gray body text
-  bullet: 10,        // bullet point text
-  small: 9,          // dates, locations, sub-items
-  tiny: 8,           // P2 header, timeline companies
-  timelineYear: 10,  // navy for timeline years
-  certBold: 10,      // bold for credential names
-  skillName: 10,     // for skill proficiency names
-};
-
-// Bullet
-const BULLET = "\u2022"; // • (U+2022)
+// Vertical
+const HDR_NAME_Y = 32;
+const HDR_TITLE_Y = 42;
+const HDR_CONTACT_Y = 49;
+const HDR_RULE_Y = 54;
+const CONTENT_Y = 62;
 
 // ---------------------------------------------------------------------------
-// LOW-LEVEL HELPERS
+// COLORS — matched to sample
 // ---------------------------------------------------------------------------
-function setColor(doc: jsPDF, rgb: [number, number, number]) {
-  doc.setTextColor(rgb[0], rgb[1], rgb[2]);
-}
+const C = {
+  navy:   [0, 33, 71],    // #002147
+  gold:   [184, 134, 11], // #B8860B
+  body:   [51, 51, 51],   // #333333
+  mid:    [85, 85, 85],   // #555555
+  gray:   [102, 102, 102], // #666666
+  lgray:  [170, 170, 170], // #AAAAAA
+  div:    [210, 210, 210], // #D2D2D2
+  white:  [255, 255, 255],
+};
 
-function hLine(doc: jsPDF, y: number, x1: number, x2: number, color?: [number, number, number], w?: number) {
-  const c = color || CLR.tan;
+// ---------------------------------------------------------------------------
+// FONT SIZES (pt) — matched to sample
+// ---------------------------------------------------------------------------
+const F = {
+  name:     26,
+  title:    13,
+  contact:  9.5,
+  secHdr:   11,    // section headers (both columns)
+  body:     10,    // main body text
+  bullet:   9.5,   // bullet text
+  small:    8.5,   // dates, sub-text
+  tiny:     7.5,   // timeline companies, P2 header
+  timeline: 9,     // timeline years
+  certName: 9.5,
+  skill:    9,
+};
+
+const BULLET = "\u2022";
+
+// ---------------------------------------------------------------------------
+// HELPERS
+// ---------------------------------------------------------------------------
+function setClr(doc: jsPDF, rgb: number[]) { doc.setTextColor(rgb[0], rgb[1], rgb[2]); }
+
+function hRule(doc: jsPDF, y: number, x1: number, x2: number, rgb?: number[], w?: number) {
+  const c = rgb || C.gold;
   doc.setDrawColor(c[0], c[1], c[2]);
   doc.setLineWidth(w || 0.35);
   doc.line(x1, y, x2, y);
 }
 
-function vLine(doc: jsPDF, x: number, y1: number, y2: number, color?: [number, number, number], w?: number) {
-  const c = color || CLR.divider;
-  doc.setDrawColor(c[0], c[1], c[2]);
-  doc.setLineWidth(w || 0.25);
+function vRule(doc: jsPDF, x: number, y1: number, y2: number) {
+  doc.setDrawColor(C.div[0], C.div[1], C.div[2]);
+  doc.setLineWidth(0.2);
   doc.line(x, y1, x, y2);
 }
 
 // ---------------------------------------------------------------------------
-// SECTION HEADERS
+// SECTION HEADER — works for both columns
 // ---------------------------------------------------------------------------
-function sidebarSectionHeader(doc: jsPDF, title: string, y: number, isPage2: boolean): number {
-  doc.setFontSize(FS.sbSectionHdr);
-  setColor(doc, CLR.navy);
+function sectionHdr(doc: jsPDF, title: string, x: number, xR: number, y: number): number {
+  doc.setFontSize(F.secHdr);
+  setClr(doc, C.navy);
   doc.setFont("helvetica", "bold");
-  doc.text(title.toUpperCase(), SB_X, y);
+  doc.text(title.toUpperCase(), x, y);
+  // Gold underline spanning column width
   const ruleY = y + 2;
-  hLine(doc, ruleY, SB_X, SB_R, isPage2 ? CLR.p2Rule : CLR.divider, 0.25);
-  return ruleY + 4;
-}
-
-function mainSectionHeader(doc: jsPDF, title: string, y: number, isPage2: boolean): number {
-  doc.setFontSize(FS.sectionHdr);
-  setColor(doc, CLR.navy);
-  doc.setFont("helvetica", "bold");
-  doc.text(title.toUpperCase(), MAIN_X, y);
-  const ruleY = y + 2;
-  const ruleEnd = MAIN_X + MAIN_W * 0.95;
-  hLine(doc, ruleY, MAIN_X, ruleEnd, isPage2 ? CLR.p2Rule : CLR.tan, 0.4);
-  return ruleY + 5;
+  hRule(doc, ruleY, x, xR, C.gold, 0.4);
+  return ruleY + 6; // 6pt gap after header
 }
 
 // ---------------------------------------------------------------------------
-// SIDEBAR SECTION BUILDER
+// SIDEBAR SECTION
 // ---------------------------------------------------------------------------
-function buildSidebarSection(doc: jsPDF, section: SidebarSection, startY: number, isPage2: boolean, maxY?: number): number {
-  let y = sidebarSectionHeader(doc, section.title, startY, isPage2);
+function sidebarSection(doc: jsPDF, sec: SidebarSection, y: number, maxY: number): number {
+  y = sectionHdr(doc, sec.title, SB_X, SB_R, y);
 
-  for (const item of section.items) {
-    if (maxY && y > maxY - 6) break;
+  for (const item of sec.items) {
+    if (y > maxY - 8) break;
 
     if (Array.isArray(item) && typeof item[1] === "number") {
-      // Skill proficiency: [skillName, rating]
-      const [skill, rating] = item as [string, number];
-      doc.setFontSize(FS.skillName);
-      setColor(doc, CLR.body);
+      // Skill proficiency: [name, rating/5]
+      const [name, rating] = item as [string, number];
+      doc.setFontSize(F.skill);
+      setClr(doc, C.body);
       doc.setFont("helvetica", "normal");
-      doc.text(skill, SB_X, y, { maxWidth: SB_W - 22 });
-      const dotX = SB_R - 14;
+      doc.text(name, SB_X + 2, y, { maxWidth: SB_W - 20 });
+      // Dots
+      const dotX = SB_R - 13;
+      doc.setFontSize(6.5);
       for (let i = 0; i < 5; i++) {
-        setColor(doc, i < rating ? CLR.tan : CLR.emptyDot);
-        doc.setFontSize(8);
-        doc.text(i < rating ? BULLET : "\u25CB", dotX + i * 2.8, y);
+        setClr(doc, i < rating ? C.gold : C.div);
+        doc.text(i < rating ? "\u25CF" : "\u25CB", dotX + i * 2.5, y);
       }
-      y += 5.5;
+      y += 5;
     } else if (Array.isArray(item) && typeof item[1] === "string") {
-      // Credential: [certName, description]
+      // Credential: [name, description]
       const [name, desc] = item as [string, string];
-      // Line 1: Tan bullet + bold cert name
-      setColor(doc, CLR.tan);
-      doc.setFontSize(8);
+      doc.setFontSize(7);
+      setClr(doc, C.gold);
       doc.text(BULLET, SB_X + 1, y);
-      doc.setFontSize(FS.certBold);
-      setColor(doc, CLR.body);
+      doc.setFontSize(F.certName);
+      setClr(doc, C.body);
       doc.setFont("helvetica", "bold");
       doc.text(name, SB_X + 4, y, { maxWidth: SB_W - 8 });
-      y += 4.5;
-      // Line 2: Indented description
+      y += 5;
       if (desc) {
-        setColor(doc, CLR.midGray);
-        doc.setFontSize(FS.small);
+        doc.setFontSize(F.small);
+        setClr(doc, C.gray);
         doc.setFont("helvetica", "normal");
         doc.text(desc, SB_X + 6, y, { maxWidth: SB_W - 10 });
-        y += 4.5;
+        y += 5;
       }
     } else {
-      // Plain string bullet
+      // Plain bullet
       const text = String(item);
-      setColor(doc, CLR.tan);
-      doc.setFontSize(8);
+      doc.setFontSize(7);
+      setClr(doc, C.gold);
       doc.text(BULLET, SB_X + 1, y);
-      doc.setFontSize(FS.body);
-      setColor(doc, CLR.body);
+      doc.setFontSize(F.body);
+      setClr(doc, C.body);
       doc.setFont("helvetica", "normal");
       doc.text(text, SB_X + 4, y, { maxWidth: SB_W - 8 });
       y += 5;
     }
   }
-  return y + 3;
+  return y + 4; // extra gap after section
 }
 
 // ---------------------------------------------------------------------------
-// EXPERIENCE ENTRY BUILDER
+// EXPERIENCE ENTRY
 // ---------------------------------------------------------------------------
-function buildExperienceEntry(
-  doc: jsPDF, e: ExperienceEntry, y: number,
-  x: number, xR: number, w: number, maxY?: number
-): number {
-  // Line 1: Job title (bold navy LEFT) + Date (gray RIGHT)
-  doc.setFontSize(11);
-  setColor(doc, CLR.navy);
+function experienceEntry(doc: jsPDF, e: ExperienceEntry, y: number, maxY: number): number {
+  // Job title (bold navy) + date (gray right-aligned)
+  doc.setFontSize(10.5);
+  setClr(doc, C.navy);
   doc.setFont("helvetica", "bold");
-  doc.text(e.title, x, y, { maxWidth: w - 35 });
-  doc.setFontSize(FS.small);
-  setColor(doc, CLR.lightGray);
+  doc.text(e.title, MAIN_X, y, { maxWidth: MAIN_W - 38 });
+  doc.setFontSize(F.small);
+  setClr(doc, C.gray);
   doc.setFont("helvetica", "normal");
-  doc.text(e.dates, xR, y, { align: "right" });
+  doc.text(e.dates, MAIN_R, y, { align: "right" });
   y += 5;
 
-  // Line 2: Company (italic, gray)
-  doc.setFontSize(FS.body);
-  setColor(doc, CLR.midGray);
+  // Company (italic)
+  doc.setFontSize(F.body);
+  setClr(doc, C.mid);
   doc.setFont("helvetica", "italic");
-  doc.text(e.company, x, y, { maxWidth: w - 5 });
+  doc.text(e.company, MAIN_X, y, { maxWidth: MAIN_W - 5 });
   y += 4.5;
 
-  // Line 3: Location (light gray)
-  doc.setFontSize(FS.small);
-  setColor(doc, CLR.lightGray);
+  // Location
+  doc.setFontSize(F.small);
+  setClr(doc, C.gray);
   doc.setFont("helvetica", "normal");
-  doc.text(e.location, x, y);
+  doc.text(e.location, MAIN_X, y);
   y += 5;
 
-  // Bullet points
+  // Bullets
+  setClr(doc, C.body);
   doc.setFont("helvetica", "normal");
-  setColor(doc, CLR.body);
-  doc.setFontSize(FS.bullet);
-  const maxBullets = maxY ? Math.min(e.bullets.length, Math.floor((maxY - y) / 5.5)) : e.bullets.length;
+  const maxBullets = maxY ? Math.min(e.bullets.length, Math.floor((maxY - y) / 6)) : e.bullets.length;
   for (let i = 0; i < maxBullets; i++) {
     if (maxY && y > maxY - 5) break;
-    // Tan bullet
-    setColor(doc, CLR.tan);
-    doc.setFontSize(8);
-    doc.text(BULLET, x + 1.5, y);
-    // Bullet text
-    setColor(doc, CLR.body);
-    doc.setFontSize(FS.bullet);
-    const bulletLines = doc.splitTextToSize(e.bullets[i], w - 8);
-    for (const line of bulletLines) {
+    // Gold bullet
+    doc.setFontSize(7);
+    setClr(doc, C.gold);
+    doc.text(BULLET, MAIN_X + 2, y);
+    // Text
+    setClr(doc, C.body);
+    doc.setFontSize(F.bullet);
+    doc.setFont("helvetica", "normal");
+    const lines = doc.splitTextToSize(e.bullets[i], MAIN_W - 10);
+    for (const line of lines) {
       if (maxY && y > maxY - 4) break;
-      doc.text(line, x + 5, y);
+      doc.text(line, MAIN_X + 6, y);
       y += 4.5;
     }
-    y += 1.5;
+    y += 2; // gap between bullets
   }
   return y;
 }
 
 // ---------------------------------------------------------------------------
-// CV PAGE 1
+// PAGE 1
 // ---------------------------------------------------------------------------
-function buildCvPage1(doc: jsPDF, cv: CvData): void {
+function page1(doc: jsPDF, cv: CvData): void {
   // === HEADER ===
-  doc.setFontSize(FS.name);
-  setColor(doc, CLR.navy);
+  doc.setFontSize(F.name);
+  setClr(doc, C.navy);
   doc.setFont("helvetica", "bold");
   doc.text(CANDIDATE.name, PW / 2, HDR_NAME_Y, { align: "center" });
 
-  doc.setFontSize(FS.title);
-  setColor(doc, CLR.navy);
+  doc.setFontSize(F.title);
+  setClr(doc, C.body);
   doc.setFont("helvetica", "normal");
   doc.text(cv.roleTitle, PW / 2, HDR_TITLE_Y, { align: "center" });
 
-  doc.setFontSize(FS.contact);
-  setColor(doc, CLR.midGray);
-  doc.setFont("helvetica", "normal");
+  doc.setFontSize(F.contact);
+  setClr(doc, C.gray);
   doc.text(CANDIDATE.contact, PW / 2, HDR_CONTACT_Y, { align: "center" });
 
-  // Tan rule below header
-  hLine(doc, HDR_RULE_Y, ML, ML + CW, CLR.tan, 0.5);
+  // Gold rule
+  hRule(doc, HDR_RULE_Y, ML, ML + CW, C.gold, 0.6);
 
-  // === VERTICAL DIVIDER LINE ===
-  vLine(doc, DIVIDER_X, CONTENT_TOP, PH - 10, CLR.divider, 0.25);
+  // Vertical divider
+  const divX = SB_R + GAP / 2;
+  vRule(doc, divX, CONTENT_Y, PH - 12);
 
-  const pageBottom = PH - 10;
+  const bottom = PH - 12;
 
-  // === SIDEBAR CONTENT (Page 1) ===
-  let sbY = CONTENT_TOP + 3;
-  for (const section of cv.sidebarPage1) {
-    sbY = buildSidebarSection(doc, section, sbY, false, pageBottom);
+  // === SIDEBAR ===
+  let sbY = CONTENT_Y + 2;
+  for (const sec of cv.sidebarPage1) {
+    sbY = sidebarSection(doc, sec, sbY, bottom);
   }
 
-  // === MAIN CONTENT ===
-  let mainY = CONTENT_TOP + 3;
+  // === MAIN COLUMN ===
+  let y = CONTENT_Y + 2;
 
   // Professional Summary
-  mainY = mainSectionHeader(doc, "Professional Summary", mainY, false);
-  doc.setFontSize(FS.body);
-  setColor(doc, CLR.body);
+  y = sectionHdr(doc, "Professional Summary", MAIN_X, MAIN_R - 5, y);
+  doc.setFontSize(F.body);
+  setClr(doc, C.body);
   doc.setFont("helvetica", "normal");
-  const summaryLines = doc.splitTextToSize(cv.summary, MAIN_W);
-  for (const line of summaryLines) {
-    if (mainY > pageBottom - 5) break;
-    doc.text(line, MAIN_X, mainY);
-    mainY += 4.8;
+  const sumLines = doc.splitTextToSize(cv.summary, MAIN_W - 5);
+  for (const line of sumLines) {
+    if (y > bottom - 5) break;
+    doc.text(line, MAIN_X, y);
+    y += 5;
   }
-  mainY += 4;
+  y += 5;
 
   // Career Timeline
-  mainY = mainSectionHeader(doc, "Career Timeline", mainY, false);
+  y = sectionHdr(doc, "Career Timeline", MAIN_X, MAIN_R - 5, y);
   const years = ["2008", "2014", "2015", "2017", "2018", "2020", "2024"];
   const companies = ["Etisalat", "Independent", "Guardian", "DQS", "Mace", "Power Intl.", "Michael Kors"];
-  const colW = (MAIN_W - 8) / 7;
-  // Years above the line
-  doc.setFontSize(FS.timelineYear);
-  setColor(doc, CLR.navy);
+  const colW = (MAIN_W - 10) / 7;
+
+  // Years centered in each column
+  doc.setFontSize(F.timeline);
+  setClr(doc, C.gold);
   doc.setFont("helvetica", "bold");
   for (let i = 0; i < years.length; i++) {
-    doc.text(years[i], MAIN_X + 4 + colW * i + colW / 2, mainY, { align: "center" });
+    doc.text(years[i], MAIN_X + 5 + colW * i + colW / 2, y, { align: "center" });
   }
-  mainY += 4;
-  // Tan horizontal line
-  hLine(doc, mainY, MAIN_X, MAIN_X + MAIN_W * 0.95, CLR.tan, 0.3);
-  mainY += 4;
-  // Company names below
-  doc.setFontSize(FS.tiny);
-  setColor(doc, CLR.body);
+  y += 3;
+
+  // Horizontal gold line
+  hRule(doc, y, MAIN_X, MAIN_R - 5, C.gold, 0.3);
+  y += 4;
+
+  // Company names
+  doc.setFontSize(F.tiny);
+  setClr(doc, C.mid);
   doc.setFont("helvetica", "normal");
   for (let i = 0; i < companies.length; i++) {
-    doc.text(companies[i], MAIN_X + 4 + colW * i + colW / 2, mainY, { align: "center" });
+    doc.text(companies[i], MAIN_X + 5 + colW * i + colW / 2, y, { align: "center" });
   }
-  mainY += 6;
+  y += 7;
 
   // Professional Experience (page 1)
-  mainY = mainSectionHeader(doc, "Professional Experience", mainY, false);
+  y = sectionHdr(doc, "Professional Experience", MAIN_X, MAIN_R - 5, y);
   for (const entry of cv.experiencePage1) {
-    if (mainY > pageBottom - 16) break;
-    mainY = buildExperienceEntry(doc, entry, mainY, MAIN_X, MAIN_R, MAIN_W, pageBottom);
-    mainY += 4;
+    if (y > bottom - 20) break;
+    y = experienceEntry(doc, entry, y, bottom);
+    y += 5;
   }
 }
 
 // ---------------------------------------------------------------------------
-// CV PAGE 2
+// PAGE 2
 // ---------------------------------------------------------------------------
-function buildCvPage2(doc: jsPDF, cv: CvData): void {
+function page2(doc: jsPDF, cv: CvData): void {
   // Page 2 header
-  doc.setFontSize(9);
-  setColor(doc, CLR.lightGray);
+  doc.setFontSize(F.tiny);
+  setClr(doc, C.gray);
   doc.setFont("helvetica", "normal");
-  const p2Header = `Page 2  |  ${cv.roleShort}  |  ${CANDIDATE.email}  |  ${CANDIDATE.phone}`;
-  doc.text(p2Header, PW / 2, 14, { align: "center" });
+  const hdr = `Page 2  |  ${cv.roleShort}  |  ${CANDIDATE.email}  |  ${CANDIDATE.phone}`;
+  doc.text(hdr, PW / 2, 12, { align: "center" });
 
-  hLine(doc, 18, ML, ML + CW, CLR.p2Rule, 0.25);
+  hRule(doc, 16, ML, ML + CW, C.div, 0.2);
 
-  const p2Top = 24;
-  const pageBottom = PH - 10;
+  const top = 22;
+  const bottom = PH - 12;
 
-  // === VERTICAL DIVIDER LINE ===
-  vLine(doc, DIVIDER_X, p2Top, PH - 10, CLR.divider, 0.25);
+  // Vertical divider
+  const divX = SB_R + GAP / 2;
+  vRule(doc, divX, top, PH - 12);
 
-  // Sidebar content (Page 2)
-  let sbY = p2Top + 3;
-  for (const section of cv.sidebarPage2) {
-    sbY = buildSidebarSection(doc, section, sbY, true, pageBottom);
+  // === SIDEBAR (Page 2) ===
+  let sbY = top + 2;
+  for (const sec of cv.sidebarPage2) {
+    sbY = sidebarSection(doc, sec, sbY, bottom);
   }
 
-  // Main content (Page 2)
-  let mainY = p2Top + 3;
+  // === MAIN COLUMN (Page 2) ===
+  let y = top + 2;
   for (const entry of cv.experiencePage2) {
-    if (mainY > pageBottom - 16) break;
-    mainY = buildExperienceEntry(doc, entry, mainY, MAIN_X, MAIN_R, MAIN_W, pageBottom);
-    mainY += 4;
+    if (y > bottom - 20) break;
+    y = experienceEntry(doc, entry, y, bottom);
+    y += 5;
   }
 
   // Earlier Career Summary
-  if (cv.earlierCareer.length > 0 && mainY < pageBottom - 20) {
-    mainY = mainSectionHeader(doc, "Earlier Career Summary", mainY, true);
+  if (cv.earlierCareer.length > 0 && y < bottom - 25) {
+    y = sectionHdr(doc, "Earlier Career Summary", MAIN_X, MAIN_R - 5, y);
     for (const e of cv.earlierCareer) {
-      if (mainY > pageBottom - 12) break;
-      setColor(doc, CLR.tan);
-      doc.setFontSize(8);
-      doc.text(BULLET, MAIN_X + 1, mainY);
-      doc.setFontSize(FS.bullet);
-      setColor(doc, CLR.body);
+      if (y > bottom - 12) break;
+      // Bullet + Company, Place | Dates
+      doc.setFontSize(7);
+      setClr(doc, C.gold);
+      doc.text(BULLET, MAIN_X + 1, y);
+      doc.setFontSize(F.bullet);
+      setClr(doc, C.body);
       doc.setFont("helvetica", "bold");
       const hdr = `${e.company}, `;
-      doc.text(hdr, MAIN_X + 4, mainY);
+      doc.text(hdr, MAIN_X + 4, y);
       const hdrW = doc.getTextWidth(hdr);
       doc.setFont("helvetica", "italic");
-      doc.text(e.place, MAIN_X + 4 + hdrW, mainY);
+      doc.text(e.place, MAIN_X + 4 + hdrW, y);
       const placeW = doc.getTextWidth(e.place);
-      doc.setFontSize(FS.small);
-      setColor(doc, CLR.lightGray);
+      doc.setFontSize(F.small);
+      setClr(doc, C.gray);
       doc.setFont("helvetica", "normal");
-      doc.text(`  |  ${e.dates}`, MAIN_X + 4 + hdrW + placeW, mainY);
-      mainY += 5;
-      doc.setFontSize(FS.bullet);
-      setColor(doc, CLR.midGray);
-      doc.setFont("helvetica", "normal");
-      doc.text(e.oneLiner, MAIN_X + 6, mainY, { maxWidth: MAIN_W - 10 });
-      mainY += 6;
+      doc.text(`  |  ${e.dates}`, MAIN_X + 4 + hdrW + placeW, y);
+      y += 5;
+      doc.setFontSize(F.bullet);
+      setClr(doc, C.mid);
+      doc.text(e.oneLiner, MAIN_X + 6, y, { maxWidth: MAIN_W - 10 });
+      y += 6;
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// BUILD FULL CV PDF
+// BUILD CV PDF
 // ---------------------------------------------------------------------------
-function buildCvPdf(cv: CvData): Buffer {
+function buildCv(cv: CvData): Buffer {
   const doc = new jsPDF({ compress: true, unit: "mm", format: "a4" });
-  buildCvPage1(doc, cv);
+  page1(doc, cv);
   doc.addPage();
-  buildCvPage2(doc, cv);
+  page2(doc, cv);
   return Buffer.from(doc.output("arraybuffer"));
 }
 
 // ---------------------------------------------------------------------------
 // BUILD COVER LETTER PDF
 // ---------------------------------------------------------------------------
-function buildCoverLetterPdf(
+function buildCoverLetter(
   cv: CvData,
   jobTitle: string,
   company?: string,
@@ -423,98 +409,73 @@ function buildCoverLetterPdf(
 
   // Header
   doc.setFontSize(18);
-  setColor(doc, CLR.navy);
+  setClr(doc, C.navy);
   doc.setFont("helvetica", "bold");
   doc.text("MUHAMMAD ALI BHATTI", PW / 2, 30, { align: "center" });
 
   doc.setFontSize(9);
-  setColor(doc, CLR.midGray);
+  setClr(doc, C.gray);
   doc.setFont("helvetica", "normal");
   doc.text("Lahore, Pakistan  |  +92 332 4862219  |  marketbrain@gmail.com  |  Open to International Relocation", PW / 2, 37, { align: "center" });
 
-  hLine(doc, 42, left, right, CLR.navy, 0.5);
+  hRule(doc, 42, left, right, C.navy, 0.5);
 
   let y = 54;
 
   // Date
-  const date = new Date().toLocaleDateString("en-GB", {
-    day: "numeric", month: "long", year: "numeric"
-  });
+  const date = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
   doc.setFontSize(10.5);
-  setColor(doc, CLR.body);
+  setClr(doc, C.body);
   doc.setFont("helvetica", "normal");
   doc.text(date, left, y);
   y += 10;
 
-  // Addressee
   if (companyName) {
-    doc.text("Hiring Manager", left, y);
-    y += 6;
-    doc.text(companyName, left, y);
-    y += 10;
+    doc.text("Hiring Manager", left, y); y += 6;
+    doc.text(companyName, left, y); y += 10;
   } else {
-    doc.text("Hiring Manager", left, y);
-    y += 10;
+    doc.text("Hiring Manager", left, y); y += 10;
   }
 
-  // Subject line
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10.5);
-  const subject = companyName
-    ? `Re: Application for ${jobTitle} at ${companyName}`
-    : `Re: Application for ${jobTitle}`;
+  const subject = companyName ? `Re: Application for ${jobTitle} at ${companyName}` : `Re: Application for ${jobTitle}`;
   doc.text(subject, left, y);
   y += 10;
 
-  // Salutation
   doc.setFont("helvetica", "normal");
   doc.text("Dear Hiring Manager,", left, y);
   y += 8;
 
-  // Helper for writing paragraphs
   const writePara = (text: string, spacing = 5) => {
     const lines = doc.splitTextToSize(text, textW);
-    for (const line of lines) {
-      doc.text(line, left, y);
-      y += spacing;
-    }
+    for (const line of lines) { doc.text(line, left, y); y += spacing; }
     y += 4;
   };
 
-  setColor(doc, CLR.body);
+  setClr(doc, C.body);
   doc.setFontSize(10.5);
 
   if (coverLetterText) {
-    // Use LLM-written cover letter
     const paras = coverLetterText.split(/\n\n+/).filter(p => p.trim());
-    for (const para of paras) {
-      writePara(para.trim());
-    }
+    for (const para of paras) writePara(para.trim());
   } else {
-    // Auto-generated fallback
-    const p1 = `I am writing to express my strong interest in the ${jobTitle} position${companyName ? ` at ${companyName}` : ""}. With over 20 years of progressive international experience across Germany, the GCC, the UK, and Pakistan, and a proven track record of delivering measurable results in roles demanding both technical command and commercial acumen, I am confident that my background aligns closely with the requirements of this opportunity.`;
-    writePara(p1);
-
-    const p2 = `Throughout my career, I have successfully led cross-functional teams, managed regulatory compliance across multiple jurisdictions, and delivered measurable outcomes for complex multi-site operations. My certifications and hands-on expertise provide a strong technical foundation for this role, while my international experience enables me to navigate diverse cultural and business environments effectively.`;
-    writePara(p2);
-
+    writePara(`I am writing to express my strong interest in the ${jobTitle} position${companyName ? ` at ${companyName}` : ""}. With over 20 years of progressive international experience across Germany, the GCC, the UK, and Pakistan, and a proven track record of delivering measurable results in roles demanding both technical command and commercial acumen, I am confident that my background aligns closely with the requirements of this opportunity.`);
+    writePara(`Throughout my career, I have successfully led cross-functional teams, managed regulatory compliance across multiple jurisdictions, and delivered measurable outcomes for complex multi-site operations. My certifications and hands-on expertise provide a strong technical foundation for this role, while my international experience enables me to navigate diverse cultural and business environments effectively.`);
     const kw = extraKeywords && extraKeywords.length > 0 ? extraKeywords.slice(0, 4).join(", ") : "";
     const p3 = kw
       ? `What draws me specifically to this opportunity is the chance to bring my expertise in ${kw} to your team${companyName ? `, and to contribute to ${companyName}'s continued growth and success` : ""}. I am equally comfortable leading from the front in the field or advising from the boardroom, and I am open to international relocation should the role require it.`
       : `What draws me to this opportunity is the strong alignment between my career achievements and the demands of this role. I am equally comfortable leading from the front in the field or advising from the boardroom, and I am open to international relocation should the role require it.`;
     writePara(p3);
-
-    const p4 = `I would welcome the opportunity to discuss how my experience and qualifications can add value to your team. I am available for an interview at your earliest convenience and can be reached at +92 332 4862219 or marketbrain@gmail.com. Thank you for considering my application.`;
-    writePara(p4);
+    writePara(`I would welcome the opportunity to discuss how my experience and qualifications can add value to your team. I am available for an interview at your earliest convenience and can be reached at +92 332 4862219 or marketbrain@gmail.com. Thank you for considering my application.`);
   }
 
-  // Signature block
   y += 4;
   doc.text("Yours sincerely,", left, y);
   y += 16;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  setColor(doc, CLR.navy);
+  setClr(doc, C.navy);
   doc.text("Muhammad Ali Bhatti", left, y);
 
   return Buffer.from(doc.output("arraybuffer"));
@@ -539,33 +500,23 @@ export const generateCvPdfs = async (
   const clPdfPath = join(PDF_OUT_DIR, `${id}_cover.pdf`);
 
   console.log("[pdf] Generating CV PDF...");
-  const cvBuffer = buildCvPdf(cv);
+  const cvBuffer = buildCv(cv);
   writeFileSync(cvPdfPath, cvBuffer);
-  console.log(`[pdf] CV PDF saved: ${cvPdfPath} (${cvBuffer.length} bytes)`);
+  console.log(`[pdf] CV saved: ${cvPdfPath} (${cvBuffer.length} bytes)`);
 
-  console.log("[pdf] Generating cover letter PDF...");
-  const clBuffer = buildCoverLetterPdf(
-    cv,
-    options?.jobTitle || cv.roleTitle,
-    options?.company,
-    options?.extraKeywords,
-    options?.coverLetterText
-  );
+  console.log("[pdf] Generating cover letter...");
+  const clBuffer = buildCoverLetter(cv, options?.jobTitle || cv.roleTitle, options?.company, options?.extraKeywords, options?.coverLetterText);
   writeFileSync(clPdfPath, clBuffer);
-  console.log(`[pdf] Cover letter PDF saved: ${clPdfPath} (${clBuffer.length} bytes)`);
-
-  const cvDoc = { variant: cv.roleShort, timestamp: new Date().toISOString() };
-  const clDoc = { jobTitle: options?.jobTitle, company: options?.company, variant: cv.roleShort, timestamp: new Date().toISOString() };
+  console.log(`[pdf] Cover letter saved: ${clPdfPath} (${clBuffer.length} bytes)`);
 
   return {
     cvPdfPath,
     coverLetterPdfPath: clPdfPath,
-    cvTexContent: JSON.stringify(cvDoc, null, 2),
-    coverLetterTexContent: JSON.stringify(clDoc, null, 2),
+    cvTexContent: JSON.stringify({ variant: cv.roleShort, timestamp: new Date().toISOString() }, null, 2),
+    coverLetterTexContent: JSON.stringify({ jobTitle: options?.jobTitle, company: options?.company, variant: cv.roleShort, timestamp: new Date().toISOString() }, null, 2),
   };
 };
 
 export const readPdfAsBase64 = (pdfPath: string): string => {
-  const buf = readFileSync(pdfPath);
-  return buf.toString("base64");
+  return readFileSync(pdfPath).toString("base64");
 };
