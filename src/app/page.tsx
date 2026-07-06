@@ -582,11 +582,7 @@ function HunterTab() {
     try {
       const res = await fetch("/api/search-profiles");
       const data = await res.json();
-      // Safety filter: never show remote profiles in Job Hunter tab
-      const localProfiles = (data.profiles || []).filter(
-        (p: SearchProfile) => !p.name.toLowerCase().includes("remote")
-      );
-      setProfiles(localProfiles);
+      setProfiles(data.profiles || []);
     } catch (err) {
       console.error(err);
     } finally {

@@ -1,6 +1,6 @@
 /**
- * GET  /api/search-profiles — list all search profiles
- * POST /api/search-profiles — create/update a search profile
+ * GET  /api/search-profiles — list local search profiles (auto-heals if missing)
+ * POST /api/search-profiles — create a search profile
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -8,13 +8,84 @@ import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
 
+const DEFAULT_PROFILES = [
+  {
+    name: "QHSE / Audit Roles — GCC + Europe",
+    cvVariantSlug: "QMS_Lead_Auditor",
+    countries: "Qatar, UAE, Saudi Arabia, Germany, UK",
+    keywords: "QMS Lead Auditor, ISO 9001, Integrated Management Systems, QHSE Manager",
+    excludeKeywords: "junior, intern, graduate",
+    frequency: "daily",
+  },
+  {
+    name: "Safety Manager Roles — Middle East",
+    cvVariantSlug: "QHSE_Manager",
+    countries: "Qatar, UAE, Saudi Arabia, Kuwait, Oman",
+    keywords: "HSE Manager, Safety Manager, NEBOSH, QCS 2014, Construction Safety",
+    excludeKeywords: "junior, intern",
+    frequency: "daily",
+  },
+  {
+    name: "ISO Auditor Roles — Global",
+    cvVariantSlug: "ISO_Auditor",
+    countries: "UAE, Germany, UK, Pakistan, Singapore",
+    keywords: "ISO Lead Auditor, CQI IRCA, Third Party Audit, Certification Body",
+    excludeKeywords: "junior, intern",
+    frequency: "weekly",
+  },
+  {
+    name: "ICT Sales Roles — GCC + Asia",
+    cvVariantSlug: "ICT_Enterprise_Sales",
+    countries: "UAE, Saudi Arabia, Qatar, Pakistan, Singapore",
+    keywords: "Enterprise Sales, ICT Sales, Cisco, SD-WAN, Account Manager",
+    excludeKeywords: "junior, intern, commission only",
+    frequency: "daily",
+  },
+  {
+    name: "Sales Director Roles — Global",
+    cvVariantSlug: "Director_Corporate_Sales",
+    countries: "UAE, Qatar, UK, Germany, Pakistan",
+    keywords: "Sales Director, Head of Sales, Commercial Director, VP Sales",
+    excludeKeywords: "junior, intern, commission only",
+    frequency: "daily",
+  },
+  {
+    name: "Quality Director Roles — Global",
+    cvVariantSlug: "Quality_Management_Director",
+    countries: "UAE, Germany, UK, Pakistan, Saudi Arabia",
+    keywords: "Quality Director, Head of Quality, QMS Manager, Lean Six Sigma",
+    excludeKeywords: "junior, intern",
+    frequency: "weekly",
+  },
+];
+
 export async function GET(req: NextRequest) {
   try {
-    // Clean up any stale "Global Remote" profiles left from previous versions.
-    // These belong in the dedicated Remote Jobs tab, not Job Hunter.
+    // Delete any leftover "Remote" profiles (they belong in the Remote Jobs tab)
     await db.searchProfile.deleteMany({
       where: { name: { contains: "Remote", mode: "insensitive" } },
     });
+
+    // Auto-heal: ensure all 6 default profiles exist
+    for (const def of DEFAULT_PROFILES) {
+      const cv = await db.cvVariant.findUnique({ where: { slug: def.cvVariantSlug } });
+      if (!cv) continue;
+
+      const exists = await db.searchProfile.findFirst({ where: { name: def.name } });
+      if (!exists) {
+        await db.searchProfile.create({
+          data: {
+            name: def.name,
+            cvVariantId: cv.id,
+            countries: def.countries,
+            keywords: def.keywords,
+            excludeKeywords: def.excludeKeywords,
+            frequency: def.frequency,
+          },
+        });
+        console.log(`[search-profiles] Auto-created: ${def.name}`);
+      }
+    }
 
     const profiles = await db.searchProfile.findMany({
       where: { isActive: true },

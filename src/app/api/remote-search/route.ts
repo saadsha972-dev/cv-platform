@@ -2,13 +2,8 @@
  * POST /api/remote-search
  * Body: { country?: string }
  *
- * Searches for REMOTE jobs across a broad range of roles the candidate
- * can realistically qualify for given 20+ years of experience in:
- * Quality Management, HSE, Auditing, Sales & Business Development,
- * Operations, Process Improvement, Training & Consulting, Supply Chain,
- * Project Management, and Compliance.
- *
- * Searches USA, Germany, UK, Australia, Canada plus global remote boards.
+ * Searches for REMOTE jobs across ALL industries using simple, effective queries.
+ * Targets USA, Germany, UK, Australia, Canada plus global remote boards.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -19,92 +14,63 @@ export const maxDuration = 120;
 const SERPER_KEY = "89280a05e2a42179789766db50570d66f5d52b1e";
 
 // ---------------------------------------------------------------------------
-// GENERIC REMOTE QUERIES — no role filters, just "remote jobs"
+// SIMPLE, EFFECTIVE QUERIES — complex boolean kills Google results
 // ---------------------------------------------------------------------------
-const REMOTE_QUERIES = [
-  // Broad senior/managerial remote jobs
-  '"remote" "manager" OR "director" OR "senior" OR "lead" jobs -training -course -intern -junior -graduate',
-  '"remote" "specialist" OR "coordinator" OR "consultant" jobs -training -course -intern -junior -graduate',
-  // Generic by seniority level
-  '"remote" jobs hiring ("manager" OR "director" OR "head of" OR "vp" OR "lead") -training -course -intern -junior',
-  // Broad function-agnostic
-  '"remote jobs" ("manager" OR "director" OR "senior manager" OR "team lead") -training -course -intern -junior',
-];
 
-// ---------------------------------------------------------------------------
-// PER-COUNTRY CONFIGS — generic "remote" + managerial, no role-specific filters
-// ---------------------------------------------------------------------------
-const COUNTRY_CONFIGS = [
-  {
-    country: "USA",
+// Per-country: simple queries that actually return results
+const COUNTRY_QUERIES: Record<string, { gl: string; queries: string[] }> = {
+  USA: {
     gl: "us",
-    siteQueries: [
-      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") USA -training -course -intern -junior -graduate',
-      'site:linkedin.com/jobs "remote" ("specialist" OR "consultant" OR "coordinator") ("senior" OR "lead" OR "manager") USA -training -course -intern -junior',
-    ],
-    generalQueries: [
-      '"remote" jobs ("manager" OR "director" OR "senior") USA -training -course -intern -junior -graduate',
-      '"remote" ("senior manager" OR "team lead" OR "head of") jobs USA -training -course -intern -junior',
+    queries: [
+      "remote manager jobs hiring USA",
+      "remote director jobs USA",
+      "remote senior specialist jobs USA",
+      "work from home manager jobs USA",
+      "remote team lead positions USA",
     ],
   },
-  {
-    country: "Germany",
+  Germany: {
     gl: "de",
-    siteQueries: [
-      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") Germany -training -course -intern -junior -graduate',
-      'site:stepstone.de "remote" ("manager" OR "director" OR "senior") -training -course -intern -junior',
-    ],
-    generalQueries: [
-      '"remote" jobs ("manager" OR "director" OR "senior") Germany -training -course -intern -junior -graduate',
+    queries: [
+      "remote manager jobs Germany hiring",
+      "remote director jobs Germany",
+      "remote senior jobs Germany English",
     ],
   },
-  {
-    country: "United Kingdom",
+  "United Kingdom": {
     gl: "uk",
-    siteQueries: [
-      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") UK -training -course -intern -junior -graduate',
-      'site:indeed.co.uk "remote" ("manager" OR "director" OR "senior") -training -course -intern -junior',
-    ],
-    generalQueries: [
-      '"remote" jobs ("manager" OR "director" OR "senior") UK -training -course -intern -junior -graduate',
+    queries: [
+      "remote manager jobs UK hiring",
+      "remote director jobs United Kingdom",
+      "work from home manager jobs UK",
     ],
   },
-  {
-    country: "Australia",
+  Australia: {
     gl: "au",
-    siteQueries: [
-      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") Australia -training -course -intern -junior -graduate',
-      'site:seek.com.au "remote" ("manager" OR "director" OR "senior") -training -course -intern',
-    ],
-    generalQueries: [
-      '"remote" jobs ("manager" OR "director" OR "senior") Australia -training -course -intern -junior -graduate',
+    queries: [
+      "remote manager jobs Australia hiring",
+      "remote director jobs Australia",
+      "work from home senior jobs Australia",
     ],
   },
-  {
-    country: "Canada",
+  Canada: {
     gl: "ca",
-    siteQueries: [
-      'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "head of" OR "lead") Canada -training -course -intern -junior -graduate',
-      'site:indeed.ca "remote" ("manager" OR "director" OR "senior") -training -course -intern -junior',
-    ],
-    generalQueries: [
-      '"remote" jobs ("manager" OR "director" OR "senior") Canada -training -course -intern -junior -graduate',
+    queries: [
+      "remote manager jobs Canada hiring",
+      "remote director jobs Canada",
+      "work from home manager jobs Canada",
     ],
   },
-];
+};
 
-// ---------------------------------------------------------------------------
-// GLOBAL REMOTE QUERIES (no country filter — targets major remote job boards)
-// ---------------------------------------------------------------------------
+// Global queries — target actual remote job boards
 const GLOBAL_QUERIES = [
-  // Major remote job boards — all management/leadership roles
-  'site:weworkremotely.com OR site:remoteok.com OR site:flexjobs.com ("manager" OR "director" OR "head of" OR "senior" OR "lead") -training -course -intern -junior',
-  // LinkedIn global — broad managerial remote
-  'site:linkedin.com/jobs "remote" ("manager" OR "director" OR "senior manager" OR "team lead" OR "head of") -training -course -intern -junior',
-  // Indeed global — broad managerial remote
-  'site:indeed.com "remote" ("manager" OR "director" OR "senior" OR "lead" OR "specialist") -training -course -intern -junior',
-  // Generic broad remote search
-  '"remote jobs" ("manager" OR "director" OR "senior" OR "lead" OR "consultant") hiring -training -course -intern -junior -graduate',
+  "site:linkedin.com/jobs remote manager hiring",
+  "site:indeed.com remote manager jobs hiring",
+  "site:weworkremotely.com manager",
+  "site:remoteok.com senior",
+  "remote jobs hiring manager director",
+  "work from home jobs manager senior specialist",
 ];
 
 interface RemoteJob {
@@ -125,7 +91,7 @@ async function serperSearch(query: string, gl: string, num = 15): Promise<any[]>
     q: query,
     num,
     hl: "en",
-    tbs: "qdr:m", // Past MONTH for better results
+    tbs: "qdr:m",
     gl,
   };
 
@@ -161,6 +127,7 @@ function parseJob(item: any, fallbackCountry: string): RemoteJob | null {
     /what does a/i, /salary.*guide/i, /course schedule/i, /\.pdf$/i,
     /facebook\.com/i, /slideserve\.com/i, /learnerspoint\.org/i,
     /job description template/i, /wikipedia\.org/i,
+    /youtube\.com/i, /reddit\.com/i,
   ];
 
   const checkText = `${title} ${snippet} ${url}`;
@@ -193,7 +160,7 @@ function parseJob(item: any, fallbackCountry: string): RemoteJob | null {
     const parts = title.split(/\s+[|\-–—]\s+/);
     if (parts.length >= 2) {
       const last = parts[parts.length - 1].trim();
-      if (!["LinkedIn", "SEEK", "Indeed", "Glassdoor", "StepStone"].includes(last)) {
+      if (!["LinkedIn", "SEEK", "Indeed", "Glassdoor", "StepStone", "Google", "We Work Remotely"].includes(last)) {
         company = last;
         jobTitle = parts[0].trim();
       }
@@ -201,7 +168,9 @@ function parseJob(item: any, fallbackCountry: string): RemoteJob | null {
   }
 
   // Clean title
-  jobTitle = jobTitle.replace(/\s*[|\-–—]\s*(LinkedIn|SEEK|Indeed|Glassdoor|StepStone|Google).*$/i, "").trim();
+  jobTitle = jobTitle.replace(/\s*[|\-–—]\s*(LinkedIn|SEEK|Indeed|Glassdoor|StepStone|Google|We Work Remotely).*$/i, "").trim();
+
+  if (!jobTitle || jobTitle.length < 5) return null;
 
   // Determine source
   let source = "google";
@@ -213,7 +182,7 @@ function parseJob(item: any, fallbackCountry: string): RemoteJob | null {
   else if (url.includes("remoteok.com")) source = "remoteok";
   else if (url.includes("flexjobs.com")) source = "flexjobs";
 
-  // Extract location from title/snippet
+  // Extract location
   const locMatch = checkText.match(
     /\b(USA|United States|Germany|UK|United Kingdom|Australia|Canada|Remote|Hybrid)\b/i
   );
@@ -241,37 +210,33 @@ export async function POST(req: NextRequest) {
     const allJobs: RemoteJob[] = [];
     const seenUrls = new Set<string>();
 
-    // Determine which countries to search
-    const configs = singleCountry
-      ? COUNTRY_CONFIGS.filter((c) => c.country.toLowerCase() === singleCountry.toLowerCase())
-      : COUNTRY_CONFIGS;
-
-    if (configs.length === 0) {
-      return NextResponse.json({ error: `Unknown country: ${singleCountry}` }, { status: 400 });
-    }
-
-    // Build all queries
+    // Build query list
     const queries: Array<{ q: string; gl: string; country: string }> = [];
 
-    for (const cfg of configs) {
-      // Country-specific site queries
-      for (const sq of cfg.siteQueries) {
-        queries.push({ q: sq, gl: cfg.gl, country: cfg.country });
+    if (singleCountry) {
+      const cfg = COUNTRY_QUERIES[singleCountry];
+      if (!cfg) {
+        return NextResponse.json({ error: `Unknown country: ${singleCountry}` }, { status: 400 });
       }
-      // Country-specific general queries
-      for (const gq of cfg.generalQueries) {
-        queries.push({ q: gq, gl: cfg.gl, country: cfg.country });
+      for (const q of cfg.queries) {
+        queries.push({ q, gl: cfg.gl, country: singleCountry });
+      }
+    } else {
+      // All countries
+      for (const [country, cfg] of Object.entries(COUNTRY_QUERIES)) {
+        for (const q of cfg.queries) {
+          queries.push({ q, gl: cfg.gl, country });
+        }
+      }
+      // Plus global queries
+      for (const q of GLOBAL_QUERIES) {
+        queries.push({ q, gl: "us", country: "Global" });
       }
     }
 
-    // Add global remote queries (no country filter — major remote job boards)
-    for (const gq of GLOBAL_QUERIES) {
-      queries.push({ q: gq, gl: "us", country: "Global" });
-    }
+    console.log(`[remote-search] Running ${queries.length} queries`);
 
-    console.log(`[remote-search] Running ${queries.length} queries across ${configs.length} countries + global`);
-
-    // Execute queries in parallel batches of 3 (respect rate limits)
+    // Execute in batches of 3
     const BATCH = 3;
     for (let i = 0; i < queries.length; i += BATCH) {
       const batch = queries.slice(i, i + BATCH);
@@ -287,7 +252,7 @@ export async function POST(req: NextRequest) {
                 jobs.push(parsed);
               }
             }
-            console.log(`[remote-search] "${q.slice(0, 60)}..." -> ${jobs.length} jobs`);
+            console.log(`[remote-search] "${q.slice(0, 50)}..." -> ${jobs.length} jobs`);
             return jobs;
           } catch (err: any) {
             console.error(`[remote-search] Query failed:`, err.message);
@@ -302,9 +267,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Delay between batches
       if (i + BATCH < queries.length) {
-        await new Promise((r) => setTimeout(r, 600));
+        await new Promise((r) => setTimeout(r, 500));
       }
     }
 
