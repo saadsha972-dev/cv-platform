@@ -612,6 +612,12 @@ function HunterTab() {
           description: data.results.map((r: any) => `${r.profile}: ${r.saved} saved`).join(" · "),
         });
         loadJobs();
+      } else if (data.needsSetup) {
+        toast({
+          title: "Setup required",
+          description: "Add GROQ_API_KEY (console.groq.com) and SERPER_API_KEY (serper.dev) in Vercel Environment Variables. Both are free.",
+          variant: "destructive",
+        });
       } else {
         throw new Error(data.error || "Search failed");
       }
@@ -639,17 +645,14 @@ function HunterTab() {
         });
         loadJobs();
         loadProfiles();
+      } else if (data.needsSetup) {
+        toast({
+          title: "Setup required",
+          description: "Add GROQ_API_KEY (console.groq.com) and SERPER_API_KEY (serper.dev) in Vercel Environment Variables. Both are free.",
+          variant: "destructive",
+        });
       } else {
-        // Check if it's a rate limit error
-        if (res.status === 429 || data.error?.includes("rate-limited")) {
-          toast({
-            title: "⏳ Rate limited",
-            description: "The search API needs 5-10 minutes to reset. Please wait and try again.",
-            variant: "destructive",
-          });
-        } else {
-          throw new Error(data.error || "Search failed");
-        }
+        throw new Error(data.error || "Search failed");
       }
     } catch (err: any) {
       toast({ title: "Search failed", description: err.message, variant: "destructive" });

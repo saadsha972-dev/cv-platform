@@ -15,6 +15,23 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {
+    // Check if required API keys are set
+    const missing: string[] = [];
+    if (!process.env.GROQ_API_KEY) missing.push("GROQ_API_KEY");
+    if (!process.env.SERPER_API_KEY) missing.push("SERPER_API_KEY");
+
+    if (missing.length) {
+      return NextResponse.json({
+        success: false,
+        needsSetup: true,
+        error: `Missing API keys: ${missing.join(", ")}. Add them in Vercel → Settings → Environment Variables.`,
+        setup: {
+          GROQ_API_KEY: "Free at https://console.groq.com/keys — used for AI job scoring",
+          SERPER_API_KEY: "Free at https://serper.dev — used for Google job search (2,500 free queries/month)",
+        },
+      }, { status: 400 });
+    }
+
     const body = await req.json().catch(() => ({}));
     const { profileId } = body as { profileId?: string };
 
@@ -28,7 +45,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No search profiles found" }, { status: 404 });
     }
 
-    const results: Array<{ profile: string; found: number; saved: number; rateLimited?: boolean }> = [];
+    const results: Array<{ profile: string; found: number; saved: number }> = [];
 
     for (const profile of profiles) {
       console.log(`[search-run] Running profile: ${profile.name}`);
@@ -45,10 +62,18 @@ export async function POST(req: NextRequest) {
       const jobs = await searchJobs(config);
       console.log(`[search-run] Found ${jobs.length} raw results for ${profile.name}`);
 
+      if (jobs.length === 0) {
+        results.push({ profile: profile.name, found: 0, saved: 0 });
+        await db.searchProfile.update({
+          where: { id: profile.id },
+          data: { lastRunAt: new Date() },
+        });
+        continue;
+      }
+
       // Score each job and save
       let saved = 0;
       for (const job of jobs.slice(0, 15)) {
-        // Skip if URL already exists for this profile
         const existing = await db.jobPosting.findFirst({
           where: { url: job.url, searchProfileId: profile.id },
         });
@@ -76,7 +101,6 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        // Create a JobMatch record linking to this CV variant
         await db.jobMatch.create({
           data: {
             jobPostingId: created.id,
@@ -84,43 +108,38 @@ export async function POST(req: NextRequest) {
             matchScore: match.matchScore,
             rationale: match.rationale,
           },
-        }).catch(() => {}); // ignore unique constraint errors
+        }).catch(() => {});
 
         saved++;
       }
 
-      // Update lastRunAt
       await db.searchProfile.update({
         where: { id: profile.id },
         data: { lastRunAt: new Date() },
       });
 
       results.push({ profile: profile.name, found: jobs.length, saved });
-
-      // If we found 0 jobs, it's likely due to rate limiting
-      if (jobs.length === 0) {
-        results[results.length - 1].rateLimited = true;
-      }
     }
 
     const totalSaved = results.reduce((sum, r) => sum + r.saved, 0);
-    const anyRateLimited = results.some((r: any) => r.rateLimited);
 
-    // If all profiles returned 0 jobs, return a helpful error message
-    if (totalSaved === 0 && anyRateLimited) {
+    if (totalSaved === 0) {
       return NextResponse.json({
         success: false,
-        error: "The web search API is rate-limited right now. Please wait 5-10 minutes and try again. The search runs 3 queries per profile, and the API needs time to reset between searches.",
+        error: "No new jobs found. Try again later or adjust your search profile keywords.",
         results,
-      }, { status: 429 });
+      });
     }
 
     return NextResponse.json({ success: true, results });
   } catch (err: any) {
     console.error("[search-run] Error:", err);
-    const errorMsg = err?.message?.includes("429") || err?.message?.includes("Too many requests")
-      ? "The web search API is rate-limited. Please wait 5-10 minutes and try again."
-      : err.message || "Search failed";
-    return NextResponse.json({ error: errorMsg }, { status: 500 });
+    const msg = err.message || "Search failed";
+    const isKeyError = msg.includes("GROQ_API_KEY") || msg.includes("SERPER_API_KEY");
+    return NextResponse.json({
+      error: isKeyError
+        ? "API key not configured. Add GROQ_API_KEY and SERPER_API_KEY in Vercel → Settings → Environment Variables."
+        : msg,
+    }, { status: 500 });
   }
 }
