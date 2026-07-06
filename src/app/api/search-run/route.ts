@@ -212,6 +212,7 @@ export async function POST(req: NextRequest) {
     }
 
     const results: Array<{ profile: string; found: number; saved: number }> = [];
+    const debugProfiles: any[] = [];
 
     for (const profile of profiles) {
       console.log(`[search-run] Profile: ${profile.name}`);
@@ -219,6 +220,10 @@ export async function POST(req: NextRequest) {
       const keywords = profile.keywords.split(",").map((s) => s.trim()).filter(Boolean);
       const countries = profile.countries.split(",").map((s) => s.trim()).filter(Boolean);
       const excludeKw = profile.excludeKeywords ? profile.excludeKeywords.split(",").map((s) => s.trim()).filter(Boolean) : [];
+
+      if (debug) {
+        debugProfiles.push({ name: profile.name, keywords, countries, kwCount: keywords.length, cCount: countries.length });
+      }
 
       // Get CV skills for scoring
       const cv = CV_VARIANTS.find((c) => c.slug === profile.cvVariant.slug);
@@ -286,6 +291,7 @@ export async function POST(req: NextRequest) {
     if (debug) {
       resp._timing = `${Date.now() - t0}ms`;
       resp._profiles = profiles.length;
+      resp._profileData = debugProfiles;
     }
 
     return NextResponse.json(resp);
