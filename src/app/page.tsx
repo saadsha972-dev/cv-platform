@@ -568,6 +568,7 @@ function HunterTab() {
   const [searching, setSearching] = useState(false);
   const [searchingProfileId, setSearchingProfileId] = useState<string | null>(null);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [minScore, setMinScore] = useState("0");
 
   const loadProfiles = useCallback(async () => {
@@ -584,7 +585,7 @@ function HunterTab() {
 
   const loadJobs = useCallback(async () => {
     try {
-      const res = await fetch(`/api/jobs?limit=50&minScore=${minScore}`);
+      const res = await fetch(`/api/jobs?limit=200&minScore=${minScore}`);
       const data = await res.json();
       setJobs(data.jobs || []);
     } catch (err) {
@@ -698,6 +699,24 @@ function HunterTab() {
       loadJobs();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleClearOldJobs = async () => {
+    setClearing(true);
+    try {
+      const res = await fetch("/api/jobs?olderThanDays=30", { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: "Old jobs cleared", description: data.message });
+        loadJobs();
+      } else {
+        toast({ title: "Failed to clear", description: data.error, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -842,6 +861,10 @@ function HunterTab() {
                 )}
                 Email Digest
               </Button>
+              <Button onClick={handleClearOldJobs} disabled={clearing} variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 text-xs">
+                {clearing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
+                Clear Old Jobs
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -909,63 +932,43 @@ function buildQuickLinks(profile: SearchProfile): Array<{ label: string; url: st
   ];
 
   // Add region-specific portals
+  const isUSA = /usa|united states/i.test(primaryCountry);
+
   if (isGCC) {
     links.push(
-      {
-        label: "Bayt",
-        url: `https://www.bayt.com/en/qatar/jobs/q/${encodedKeyword}/`,
-      },
-      {
-        label: "GulfTalent",
-        url: `https://www.gulftalent.com/qatar/jobs/search?keyword=${encodedKeyword}`,
-      },
-      {
-        label: "Naukri Gulf",
-        url: `https://www.naukrigulf.com/jobs-in-${encodedLocation}/${encodedKeyword}`,
-      }
+      { label: "Bayt", url: `https://www.bayt.com/en/jobs/q/${encodedKeyword}/` },
+      { label: "GulfTalent", url: `https://www.gulftalent.com/jobs/search?keyword=${encodedKeyword}` },
+      { label: "Naukri Gulf", url: `https://www.naukrigulf.com/${encodedKeyword}-jobs` }
+    );
+  }
+
+  if (isUSA) {
+    links.push(
+      { label: "ZipRecruiter", url: `https://www.ziprecruiter.com/candidate/search?search=${encodedKeyword}&location=${encodedLocation}` },
+      { label: "USAJobs", url: `https://www.usajobs.gov/Search/Results?k=${encodedKeyword}` }
     );
   }
 
   if (isAsia) {
     links.push(
-      {
-        label: "Rozee.pk",
-        url: `https://www.rozee.pk/job/jobs/${encodedKeyword}`,
-      },
-      {
-        label: "Mustakbil",
-        url: `https://www.mustakbil.com/jobs/search?keyword=${encodedKeyword}&city=${encodedLocation}`,
-      }
+      { label: "Rozee.pk", url: `https://www.rozee.pk/job/jobs/${encodedKeyword}` },
+      { label: "Mustakbil", url: `https://www.mustakbil.com/jobs/search?keyword=${encodedKeyword}&city=${encodedLocation}` }
     );
   }
 
   if (isEurope) {
     links.push(
-      {
-        label: "StepStone",
-        url: `https://www.stepstone.de/jobs/${encodedKeyword}/in-${encodedLocation}`,
-      },
-      {
-        label: "XING Jobs",
-        url: `https://www.xing.com/jobs/search?keywords=${encodedKeyword}&location=${encodedLocation}`,
-      },
-      {
-        label: "Jobs.lu",
-        url: `https://www.jobs.lu/en/jobs?keywords=${encodedKeyword}`,
-      }
+      { label: "StepStone", url: `https://www.stepstone.de/jobs/${encodedKeyword}` },
+      { label: "XING Jobs", url: `https://www.xing.com/jobs/search?keywords=${encodedKeyword}&location=${encodedLocation}` },
+      { label: "UK Gov Jobs", url: `https://www.gov.uk/find-a-job` }
     );
   }
 
   if (isOceania) {
     links.push(
-      {
-        label: "Seek NZ",
-        url: `https://www.seek.co.nz/${encodedKeyword}-jobs/in-${encodedLocation}`,
-      },
-      {
-        label: "TradeMe Jobs",
-        url: `https://www.trademe.co.nz/a/jobs/search?q=${encodedKeyword}&location=${encodedLocation}`,
-      }
+      { label: "Seek AU", url: `https://www.seek.com.au/${encodedKeyword}-jobs` },
+      { label: "Seek NZ", url: `https://www.seek.co.nz/${encodedKeyword}-jobs` },
+      { label: "TradeMe", url: `https://www.trademe.co.nz/a/jobs/search?q=${encodedKeyword}` }
     );
   }
 

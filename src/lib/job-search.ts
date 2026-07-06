@@ -26,21 +26,29 @@ export interface SearchProfileConfig {
 }
 
 // ---------------------------------------------------------------------------
-// SERPER.DEV GOOGLE SEARCH
+// SERPER.DEV GOOGLE SEARCH — with date recency filter
 // ---------------------------------------------------------------------------
-async function serperSearch(query: string, apiKey: string): Promise<any[]> {
+async function serperSearch(query: string, apiKey: string, gl?: string): Promise<any[]> {
+  const body: any = {
+    q: query,
+    num: 20, // More results per query
+    hl: "en",
+    // Date recency filter: past month — ensures recent jobs
+    tbs: "qdr:m",
+  };
+
+  // Set geolocation based on country if possible
+  if (gl) {
+    body.gl = gl;
+  }
+
   const res = await fetch("https://google.serper.dev/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-API-KEY": apiKey,
     },
-    body: JSON.stringify({
-      q: query,
-      num: 10,
-      gl: "us",
-      hl: "en",
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -53,6 +61,31 @@ async function serperSearch(query: string, apiKey: string): Promise<any[]> {
 }
 
 // ---------------------------------------------------------------------------
+// COUNTRY → GEOLOCATION + DOMAIN MAPPING
+// ---------------------------------------------------------------------------
+const COUNTRY_GEO: Record<string, string> = {
+  "usa": "us",
+  "united states": "us",
+  "germany": "de",
+  "united kingdom": "uk",
+  "uk": "uk",
+  "australia": "au",
+  "canada": "ca",
+  "qatar": "qa",
+  "uae": "ae",
+  "saudi arabia": "sa",
+  "kuwait": "kw",
+  "oman": "om",
+  "pakistan": "pk",
+  "singapore": "sg",
+  "new zealand": "nz",
+};
+
+function getGeo(country: string): string {
+  return COUNTRY_GEO[country.toLowerCase().trim()] || "us";
+}
+
+// ---------------------------------------------------------------------------
 // PARSE SEARCH RESULTS INTO JOB POSTINGS
 // ---------------------------------------------------------------------------
 function parseResults(items: any[], profile: SearchProfileConfig): JobSearchResult[] {
@@ -61,23 +94,27 @@ function parseResults(items: any[], profile: SearchProfileConfig): JobSearchResu
       const url = item.link || "";
       const title = item.title || "";
       const snippet = item.snippet || "";
+      const date = item.date || ""; // Serper may return date with tbs filter
 
       let source = "google";
       if (url.includes("linkedin.com")) source = "linkedin";
       else if (url.includes("indeed.com")) source = "indeed";
       else if (url.includes("glassdoor.com")) source = "glassdoor";
-      else if (url.includes("seek.com")) source = "seek";
+      else if (url.includes("seek.com.au")) source = "seek";
       else if (url.includes("rozee.pk")) source = "rozee";
       else if (url.includes("bayt.com")) source = "bayt";
       else if (url.includes("gulftalent.com")) source = "gulftalent";
       else if (url.includes("naukrigulf.com")) source = "naukri";
+      else if (url.includes("monster.com")) source = "monster";
+      else if (url.includes("stepstone.de")) source = "stepstone";
+      else if (url.includes("xing.com")) source = "xing";
 
       const { jobTitle, company } = parseTitleAndCompany(title, snippet, url);
 
       return {
         title: jobTitle,
         company,
-        location: extractLocation(title, snippet),
+        location: extractLocation(title, snippet, profile.countries),
         url,
         description: snippet.slice(0, 800),
         source,
@@ -98,7 +135,8 @@ const isActualJobPosting = (job: JobSearchResult): boolean => {
   const skip = [
     /training course/i, /certification training/i, /lead auditor course/i,
     /iso 9001 training/i, /course schedule/i, /\.pdf$/i, /facebook\.com/i,
-    /slideserve\.com/i, /learnerspoint\.org/i,
+    /slideserve\.com/i, /learnerspoint\.org/i, /salary.*guide/i,
+    /how to become/i, /what does a/i, /job description template/i,
   ];
   for (const p of skip) {
     if (p.test(t) || p.test(u) || p.test(d)) return false;
@@ -143,13 +181,13 @@ const parseTitleAndCompany = (
   const parts = name.split(/\s+[|\-–—]\s+/);
   if (parts.length >= 2) {
     const last = parts[parts.length - 1].trim();
-    if (last && !["LinkedIn", "SEEK", "Indeed", "Glassdoor", "Google"].includes(last)) {
+    if (last && !["LinkedIn", "SEEK", "Indeed", "Glassdoor", "Google", "StepStone"].includes(last)) {
       return { jobTitle: parts[0].trim(), company: last };
     }
   }
 
   // Fallback: use full name as title
-  const cleanTitle = name.replace(/\s*[|\-–—]\s*(LinkedIn|SEEK|Indeed|Glassdoor).*$/i, "").trim();
+  const cleanTitle = name.replace(/\s*[|\-–—]\s*(LinkedIn|SEEK|Indeed|Glassdoor|StepStone|Google).*$/i, "").trim();
   let company = "Not specified";
   const cMatch = snippet.match(/(?:Company|at|by):\s*([A-Z][a-zA-Z\s&]+?)(?:\.|,|;|$)/);
   if (cMatch) company = cMatch[1].trim();
@@ -158,18 +196,34 @@ const parseTitleAndCompany = (
 };
 
 // ---------------------------------------------------------------------------
-// EXTRACT LOCATION
+// EXTRACT LOCATION — now aware of profile countries
 // ---------------------------------------------------------------------------
-const extractLocation = (title: string, snippet: string): string => {
+function extractLocation(title: string, snippet: string, profileCountries: string[]): string {
   const text = `${title} ${snippet}`;
-  const locMatch = text.match(
-    /\b(Lahore|Karachi|Islamabad|Doha|Dubai|Abu Dhabi|London|Berlin|Munich|Sydney|Melbourne|Auckland|Riyadh|Jeddah|Kuwait|Muscat|Manama|Remote|Hybrid)\b/i
-  );
-  return locMatch ? locMatch[0] : "Not specified";
-};
+
+  // Build a comprehensive location regex from profile countries + common cities
+  const locations = [
+    // Profile countries
+    ...profileCountries.map(c => c.trim()),
+    // Common city matches
+    "Lahore", "Karachi", "Islamabad", "Doha", "Dubai", "Abu Dhabi",
+    "London", "Berlin", "Munich", "Frankfurt", "Sydney", "Melbourne",
+    "Auckland", "Riyadh", "Jeddah", "Kuwait", "Muscat", "Manama",
+    "Remote", "Hybrid", "New York", "Texas", "California", "Toronto",
+    "Vancouver", "Edmonton", "Houston", "Chicago",
+  ];
+
+  // Sort by length descending so longer matches take priority (e.g., "United Kingdom" before "UK")
+  const sorted = [...new Set(locations)].sort((a, b) => b.length - a.length);
+  const pattern = sorted.map(l => l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join("|");
+
+  const locMatch = text.match(new RegExp(`\\b(${pattern})\\b`, "i"));
+  return locMatch ? locMatch[0].trim() : profileCountries[0] || "Not specified";
+}
 
 // ---------------------------------------------------------------------------
 // MAIN SEARCH FUNCTION
+// Generates queries per country for better coverage + recency
 // ---------------------------------------------------------------------------
 export const searchJobs = async (profile: SearchProfileConfig): Promise<JobSearchResult[]> => {
   const apiKey = process.env.SERPER_API_KEY || "89280a05e2a42179789766db50570d66f5d52b1e";
@@ -178,20 +232,55 @@ export const searchJobs = async (profile: SearchProfileConfig): Promise<JobSearc
   const seenUrls = new Set<string>();
 
   const primaryKeyword = profile.keywords[0];
-  const primaryCountry = profile.countries[0];
   const secondKeyword = profile.keywords[1] || primaryKeyword;
 
-  const queries = [
-    `site:linkedin.com/jobs "${primaryKeyword}" ${primaryCountry} hiring`,
-    `${primaryKeyword} jobs ${primaryCountry} -training -course`,
-    `site:indeed.com "${primaryKeyword}" ${primaryCountry}`,
-  ];
+  // Build queries: one set per country for LinkedIn, one general set
+  const queries: Array<{ q: string; gl?: string }> = [];
+
+  // For each country, generate targeted queries
+  const uniqueCountries = [...new Set(profile.countries.map(c => c.trim()))];
+
+  for (const country of uniqueCountries.slice(0, 5)) {
+    const geo = getGeo(country);
+
+    // LinkedIn query per country
+    queries.push({
+      q: `site:linkedin.com/jobs "${primaryKeyword}" ${country} hiring`,
+      gl: geo,
+    });
+
+    // Indeed or general query per country (alternate between them)
+    if (["usa", "united states", "uk", "united kingdom", "australia", "canada", "germany"].includes(country.toLowerCase())) {
+      queries.push({
+        q: `"${primaryKeyword}" jobs ${country} -training -course -intern -junior`,
+        gl: geo,
+      });
+    }
+  }
+
+  // Remote-specific queries (high value for international candidates)
+  queries.push({
+    q: `"${primaryKeyword}" remote jobs -training -course -intern`,
+    gl: "us",
+  });
+  queries.push({
+    q: `site:linkedin.com/jobs "${primaryKeyword}" remote hiring`,
+    gl: "us",
+  });
+
+  // One broad query with multiple keywords
+  if (secondKeyword !== primaryKeyword) {
+    queries.push({
+      q: `"${primaryKeyword}" OR "${secondKeyword}" jobs hiring -training -course`,
+      gl: "us",
+    });
+  }
 
   console.log(`[job-search] Running ${queries.length} queries for ${profile.cvVariantRoleShort}`);
 
-  for (const query of queries) {
+  for (const { q, gl } of queries) {
     try {
-      const items = await serperSearch(query, apiKey);
+      const items = await serperSearch(q, apiKey, gl);
       const jobs = parseResults(items, profile);
       for (const r of jobs) {
         if (r.url && !seenUrls.has(r.url)) {
@@ -199,12 +288,12 @@ export const searchJobs = async (profile: SearchProfileConfig): Promise<JobSearc
           allResults.push(r);
         }
       }
-      console.log(`[job-search] Query "${query.slice(0, 50)}..." → ${jobs.length} jobs`);
+      console.log(`[job-search] Query "${q.slice(0, 60)}..." → ${jobs.length} jobs`);
     } catch (err: any) {
       console.error(`[job-search] Query failed:`, err.message);
     }
     // Delay between queries to respect rate limits
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 800));
   }
 
   console.log(`[job-search] Total: ${allResults.length} unique job postings`);
