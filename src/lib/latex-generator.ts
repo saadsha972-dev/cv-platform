@@ -1,13 +1,14 @@
 /**
- * PDF CV Generator v7.0 — Clean, Professional, Sample-Matched
+ * PDF CV Generator v8.0 — Clean, Professional, No-Overflow
  * ============================================================
  * Generates tailored CV and cover letter PDFs using jsPDF.
- * Layout matches the professional sample CV:
+ *
+ * Layout:
  *   - 35% left sidebar / 65% right main column
  *   - Dark navy (#002147) headers, gold (#B8860B) accents
- *   - Proper 10-11pt body text with 1.5x line height
- *   - Generous white space between sections
- *   - Clean timeline, consistent bullet styling
+ *   - Smart content fitting: auto-truncates summary, limits bullets
+ *   - NO career timeline (redundant, wastes space)
+ *   - Proper overflow protection at every step
  */
 
 import { jsPDF } from "jspdf";
@@ -34,8 +35,8 @@ const MR = 18;
 const CW = PW - ML - MR; // 174mm
 
 // Column split: 35% sidebar, 65% main
-const SB_W = 60;       // sidebar width
-const GAP = 4;         // gutter
+const SB_W = 60;
+const GAP = 4;
 const MAIN_W = CW - SB_W - GAP; // 110mm
 
 const SB_X = ML;
@@ -43,42 +44,46 @@ const SB_R = ML + SB_W;          // 78mm
 const MAIN_X = ML + SB_W + GAP;  // 82mm
 const MAIN_R = ML + CW;          // 192mm
 
-// Vertical
-const HDR_NAME_Y = 32;
-const HDR_TITLE_Y = 42;
-const HDR_CONTACT_Y = 49;
-const HDR_RULE_Y = 54;
-const CONTENT_Y = 62;
+// Vertical positions
+const HDR_NAME_Y = 30;
+const HDR_TITLE_Y = 39;
+const HDR_CONTACT_Y = 46;
+const HDR_RULE_Y = 51;
+const CONTENT_Y = 58;
+
+// Page margins (top/bottom content bounds)
+const PAGE1_BOTTOM = PH - 10;
+const PAGE2_TOP = 20;
+const PAGE2_BOTTOM = PH - 10;
 
 // ---------------------------------------------------------------------------
-// COLORS — matched to sample
+// COLORS
 // ---------------------------------------------------------------------------
 const C = {
-  navy:   [0, 33, 71],    // #002147
-  gold:   [184, 134, 11], // #B8860B
-  body:   [51, 51, 51],   // #333333
-  mid:    [85, 85, 85],   // #555555
-  gray:   [102, 102, 102], // #666666
-  lgray:  [170, 170, 170], // #AAAAAA
-  div:    [210, 210, 210], // #D2D2D2
+  navy:   [0, 33, 71],
+  gold:   [184, 134, 11],
+  body:   [51, 51, 51],
+  mid:    [85, 85, 85],
+  gray:   [102, 102, 102],
+  lgray:  [170, 170, 170],
+  div:    [210, 210, 210],
   white:  [255, 255, 255],
 };
 
 // ---------------------------------------------------------------------------
-// FONT SIZES (pt) — matched to sample
+// FONT SIZES (pt)
 // ---------------------------------------------------------------------------
 const F = {
-  name:     26,
-  title:    13,
-  contact:  9.5,
-  secHdr:   11,    // section headers (both columns)
-  body:     10,    // main body text
-  bullet:   9.5,   // bullet text
-  small:    8.5,   // dates, sub-text
-  tiny:     7.5,   // timeline companies, P2 header
-  timeline: 9,     // timeline years
-  certName: 9.5,
-  skill:    9,
+  name:     24,
+  title:    12,
+  contact:  9,
+  secHdr:   10.5,
+  body:     9.5,
+  bullet:   9,
+  small:    8,
+  tiny:     7.5,
+  certName: 9,
+  skill:    8.5,
 };
 
 const BULLET = "\u2022";
@@ -91,38 +96,54 @@ function setClr(doc: jsPDF, rgb: number[]) { doc.setTextColor(rgb[0], rgb[1], rg
 function hRule(doc: jsPDF, y: number, x1: number, x2: number, rgb?: number[], w?: number) {
   const c = rgb || C.gold;
   doc.setDrawColor(c[0], c[1], c[2]);
-  doc.setLineWidth(w || 0.35);
+  doc.setLineWidth(w || 0.3);
   doc.line(x1, y, x2, y);
 }
 
 function vRule(doc: jsPDF, x: number, y1: number, y2: number) {
   doc.setDrawColor(C.div[0], C.div[1], C.div[2]);
-  doc.setLineWidth(0.2);
+  doc.setLineWidth(0.15);
   doc.line(x, y1, x, y2);
 }
 
+/** Truncate text to fit approximately maxLines lines at given width. */
+function fitText(doc: jsPDF, text: string, maxWidth: number, maxLines: number): string {
+  const lines = doc.splitTextToSize(text, maxWidth);
+  if (lines.length <= maxLines) return text;
+  // Find the cut point
+  let truncated = text;
+  while (doc.splitTextToSize(truncated + "...", maxWidth).length > maxLines) {
+    const lastSpace = truncated.lastIndexOf(" ");
+    if (lastSpace <= 0) break;
+    truncated = truncated.substring(0, lastSpace);
+  }
+  return truncated + "...";
+}
+
 // ---------------------------------------------------------------------------
-// SECTION HEADER — works for both columns
+// SECTION HEADER
 // ---------------------------------------------------------------------------
 function sectionHdr(doc: jsPDF, title: string, x: number, xR: number, y: number): number {
   doc.setFontSize(F.secHdr);
   setClr(doc, C.navy);
   doc.setFont("helvetica", "bold");
   doc.text(title.toUpperCase(), x, y);
-  // Gold underline spanning column width
-  const ruleY = y + 2;
-  hRule(doc, ruleY, x, xR, C.gold, 0.4);
-  return ruleY + 6; // 6pt gap after header
+  const ruleY = y + 1.5;
+  hRule(doc, ruleY, x, xR, C.gold, 0.35);
+  return ruleY + 4.5;
 }
 
 // ---------------------------------------------------------------------------
 // SIDEBAR SECTION
 // ---------------------------------------------------------------------------
 function sidebarSection(doc: jsPDF, sec: SidebarSection, y: number, maxY: number): number {
+  // Check if we have room for at least a header + 1 item
+  if (y > maxY - 15) return y;
+
   y = sectionHdr(doc, sec.title, SB_X, SB_R, y);
 
   for (const item of sec.items) {
-    if (y > maxY - 8) break;
+    if (y > maxY - 6) break;
 
     if (Array.isArray(item) && typeof item[1] === "number") {
       // Skill proficiency: [name, rating/5]
@@ -130,109 +151,114 @@ function sidebarSection(doc: jsPDF, sec: SidebarSection, y: number, maxY: number
       doc.setFontSize(F.skill);
       setClr(doc, C.body);
       doc.setFont("helvetica", "normal");
-      doc.text(name, SB_X + 2, y, { maxWidth: SB_W - 20 });
-      // Draw small filled/empty circles using jsPDF drawing (no Unicode)
+      // Truncate skill name if it would wrap
+      const truncated = fitText(doc, name, SB_W - 22, 1);
+      doc.text(truncated, SB_X + 2, y, { maxWidth: SB_W - 22 });
+      // Draw filled/empty circles
       const dotX = SB_R - 14;
-      const dotY = y - 1.2;
-      const dotR = 0.6;
+      const dotY = y - 1;
+      const dotR = 0.55;
       for (let i = 0; i < 5; i++) {
         const cx = dotX + i * 2.5;
-        setClr(doc, i < rating ? C.gold : C.div);
-        doc.setDrawColor(i < rating ? C.gold[0] : C.div[0], i < rating ? C.gold[1] : C.div[1], i < rating ? C.gold[2] : C.div[2]);
         if (i < rating) {
-          // Filled circle
           doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]);
           doc.circle(cx, dotY, dotR, "F");
         } else {
-          // Empty circle (stroke only)
+          doc.setDrawColor(C.div[0], C.div[1], C.div[2]);
           doc.circle(cx, dotY, dotR, "S");
         }
       }
-      y += 5;
+      y += 4.5;
     } else if (Array.isArray(item) && typeof item[1] === "string") {
       // Credential: [name, description]
       const [name, desc] = item as [string, string];
+      if (y > maxY - 6) break;
       doc.setFontSize(7);
       setClr(doc, C.gold);
       doc.text(BULLET, SB_X + 1, y);
       doc.setFontSize(F.certName);
       setClr(doc, C.body);
       doc.setFont("helvetica", "bold");
-      doc.text(name, SB_X + 4, y, { maxWidth: SB_W - 8 });
-      y += 5;
-      if (desc) {
+      const truncName = fitText(doc, name, SB_W - 8, 1);
+      doc.text(truncName, SB_X + 4, y, { maxWidth: SB_W - 8 });
+      y += 4;
+      if (desc && y < maxY - 5) {
         doc.setFontSize(F.small);
         setClr(doc, C.gray);
         doc.setFont("helvetica", "normal");
-        doc.text(desc, SB_X + 6, y, { maxWidth: SB_W - 10 });
-        y += 5;
+        const truncDesc = fitText(doc, desc, SB_W - 10, 1);
+        doc.text(truncDesc, SB_X + 5, y, { maxWidth: SB_W - 10 });
+        y += 4;
       }
     } else {
       // Plain bullet
       const text = String(item);
+      if (y > maxY - 5) break;
       doc.setFontSize(7);
       setClr(doc, C.gold);
       doc.text(BULLET, SB_X + 1, y);
-      doc.setFontSize(F.body);
+      doc.setFontSize(8.5);
       setClr(doc, C.body);
       doc.setFont("helvetica", "normal");
-      doc.text(text, SB_X + 4, y, { maxWidth: SB_W - 8 });
-      y += 5;
+      const truncText = fitText(doc, text, SB_W - 8, 1);
+      doc.text(truncText, SB_X + 4, y, { maxWidth: SB_W - 8 });
+      y += 4;
     }
   }
-  return y + 4; // extra gap after section
+  return y + 3;
 }
 
 // ---------------------------------------------------------------------------
-// EXPERIENCE ENTRY
+// EXPERIENCE ENTRY — with strict overflow protection
 // ---------------------------------------------------------------------------
-function experienceEntry(doc: jsPDF, e: ExperienceEntry, y: number, maxY: number): number {
+function experienceEntry(doc: jsPDF, e: ExperienceEntry, y: number, maxY: number, maxBullets: number = 4): number {
+  // Need at least 20mm for title + company + 1 bullet
+  if (y > maxY - 20) return y;
+
   // Job title (bold navy) + date (gray right-aligned)
-  doc.setFontSize(10.5);
+  doc.setFontSize(10);
   setClr(doc, C.navy);
   doc.setFont("helvetica", "bold");
-  doc.text(e.title, MAIN_X, y, { maxWidth: MAIN_W - 38 });
+  const truncTitle = fitText(doc, e.title, MAIN_W - 40, 1);
+  doc.text(truncTitle, MAIN_X, y, { maxWidth: MAIN_W - 40 });
   doc.setFontSize(F.small);
   setClr(doc, C.gray);
   doc.setFont("helvetica", "normal");
   doc.text(e.dates, MAIN_R, y, { align: "right" });
-  y += 5;
+  y += 4;
 
   // Company (italic)
-  doc.setFontSize(F.body);
+  doc.setFontSize(9);
   setClr(doc, C.mid);
   doc.setFont("helvetica", "italic");
   doc.text(e.company, MAIN_X, y, { maxWidth: MAIN_W - 5 });
-  y += 4.5;
+  y += 3.5;
 
   // Location
   doc.setFontSize(F.small);
   setClr(doc, C.gray);
   doc.setFont("helvetica", "normal");
   doc.text(e.location, MAIN_X, y);
-  y += 5;
+  y += 4;
 
-  // Bullets
-  setClr(doc, C.body);
-  doc.setFont("helvetica", "normal");
-  const maxBullets = maxY ? Math.min(e.bullets.length, Math.floor((maxY - y) / 6)) : e.bullets.length;
-  for (let i = 0; i < maxBullets; i++) {
-    if (maxY && y > maxY - 5) break;
-    // Gold bullet
+  // Bullets — max maxBullets, each max 2 lines
+  const bulletCount = Math.min(e.bullets.length, maxBullets);
+  for (let i = 0; i < bulletCount; i++) {
+    if (y > maxY - 6) break;
     doc.setFontSize(7);
     setClr(doc, C.gold);
     doc.text(BULLET, MAIN_X + 2, y);
-    // Text
     setClr(doc, C.body);
     doc.setFontSize(F.bullet);
     doc.setFont("helvetica", "normal");
     const lines = doc.splitTextToSize(e.bullets[i], MAIN_W - 10);
-    for (const line of lines) {
-      if (maxY && y > maxY - 4) break;
-      doc.text(line, MAIN_X + 6, y);
-      y += 4.5;
+    const maxLines = Math.min(lines.length, 2); // max 2 lines per bullet
+    for (let li = 0; li < maxLines; li++) {
+      if (y > maxY - 4) break;
+      doc.text(lines[li], MAIN_X + 6, y);
+      y += 3.8;
     }
-    y += 2; // gap between bullets
+    y += 1.5; // gap between bullets
   }
   return y;
 }
@@ -257,70 +283,41 @@ function page1(doc: jsPDF, cv: CvData): void {
   doc.text(CANDIDATE.contact, PW / 2, HDR_CONTACT_Y, { align: "center" });
 
   // Gold rule
-  hRule(doc, HDR_RULE_Y, ML, ML + CW, C.gold, 0.6);
+  hRule(doc, HDR_RULE_Y, ML, ML + CW, C.gold, 0.5);
 
   // Vertical divider
-  const divX = SB_R + GAP / 2;
-  vRule(doc, divX, CONTENT_Y, PH - 12);
-
-  const bottom = PH - 12;
+  vRule(doc, SB_R + GAP / 2, CONTENT_Y, PAGE1_BOTTOM);
 
   // === SIDEBAR ===
   let sbY = CONTENT_Y + 2;
   for (const sec of cv.sidebarPage1) {
-    sbY = sidebarSection(doc, sec, sbY, bottom);
+    sbY = sidebarSection(doc, sec, sbY, PAGE1_BOTTOM);
   }
 
   // === MAIN COLUMN ===
   let y = CONTENT_Y + 2;
 
-  // Professional Summary
+  // Professional Summary — auto-truncate to fit ~5 lines
   y = sectionHdr(doc, "Professional Summary", MAIN_X, MAIN_R - 5, y);
+  const summaryMaxLines = 5;
+  const fittedSummary = fitText(doc, cv.summary, MAIN_W - 5, summaryMaxLines);
   doc.setFontSize(F.body);
   setClr(doc, C.body);
   doc.setFont("helvetica", "normal");
-  const sumLines = doc.splitTextToSize(cv.summary, MAIN_W - 5);
+  const sumLines = doc.splitTextToSize(fittedSummary, MAIN_W - 5);
   for (const line of sumLines) {
-    if (y > bottom - 5) break;
+    if (y > PAGE1_BOTTOM - 5) break;
     doc.text(line, MAIN_X, y);
-    y += 5;
+    y += 4.2;
   }
-  y += 5;
-
-  // Career Timeline
-  y = sectionHdr(doc, "Career Timeline", MAIN_X, MAIN_R - 5, y);
-  const years = ["2008", "2014", "2015", "2017", "2018", "2020", "2024"];
-  const companies = ["Etisalat", "Independent", "Guardian", "DQS", "Mace", "Power Intl.", "Michael Kors"];
-  const colW = (MAIN_W - 10) / 7;
-
-  // Years centered in each column
-  doc.setFontSize(F.timeline);
-  setClr(doc, C.gold);
-  doc.setFont("helvetica", "bold");
-  for (let i = 0; i < years.length; i++) {
-    doc.text(years[i], MAIN_X + 5 + colW * i + colW / 2, y, { align: "center" });
-  }
-  y += 3;
-
-  // Horizontal gold line
-  hRule(doc, y, MAIN_X, MAIN_R - 5, C.gold, 0.3);
   y += 4;
 
-  // Company names
-  doc.setFontSize(F.tiny);
-  setClr(doc, C.mid);
-  doc.setFont("helvetica", "normal");
-  for (let i = 0; i < companies.length; i++) {
-    doc.text(companies[i], MAIN_X + 5 + colW * i + colW / 2, y, { align: "center" });
-  }
-  y += 7;
-
-  // Professional Experience (page 1)
+  // Professional Experience — NO timeline, straight to experience
   y = sectionHdr(doc, "Professional Experience", MAIN_X, MAIN_R - 5, y);
   for (const entry of cv.experiencePage1) {
-    if (y > bottom - 20) break;
-    y = experienceEntry(doc, entry, y, bottom);
-    y += 5;
+    if (y > PAGE1_BOTTOM - 22) break;
+    y = experienceEntry(doc, entry, y, PAGE1_BOTTOM, 4);
+    y += 4;
   }
 }
 
@@ -332,47 +329,42 @@ function page2(doc: jsPDF, cv: CvData): void {
   doc.setFontSize(F.tiny);
   setClr(doc, C.gray);
   doc.setFont("helvetica", "normal");
-  const hdr = `Page 2  |  ${cv.roleShort}  |  ${CANDIDATE.email}  |  ${CANDIDATE.phone}`;
+  const hdr = `${cv.roleShort}  |  ${CANDIDATE.email}  |  ${CANDIDATE.phone}`;
   doc.text(hdr, PW / 2, 12, { align: "center" });
 
-  hRule(doc, 16, ML, ML + CW, C.div, 0.2);
-
-  const top = 22;
-  const bottom = PH - 12;
+  hRule(doc, 15, ML, ML + CW, C.div, 0.2);
 
   // Vertical divider
-  const divX = SB_R + GAP / 2;
-  vRule(doc, divX, top, PH - 12);
+  vRule(doc, SB_R + GAP / 2, PAGE2_TOP, PAGE2_BOTTOM);
 
   // === SIDEBAR (Page 2) ===
-  let sbY = top + 2;
+  let sbY = PAGE2_TOP + 2;
   for (const sec of cv.sidebarPage2) {
-    sbY = sidebarSection(doc, sec, sbY, bottom);
+    sbY = sidebarSection(doc, sec, sbY, PAGE2_BOTTOM);
   }
 
   // === MAIN COLUMN (Page 2) ===
-  let y = top + 2;
+  let y = PAGE2_TOP + 2;
   for (const entry of cv.experiencePage2) {
-    if (y > bottom - 20) break;
-    y = experienceEntry(doc, entry, y, bottom);
-    y += 5;
+    if (y > PAGE2_BOTTOM - 22) break;
+    y = experienceEntry(doc, entry, y, PAGE2_BOTTOM, 4);
+    y += 4;
   }
 
   // Earlier Career Summary
-  if (cv.earlierCareer.length > 0 && y < bottom - 25) {
-    y = sectionHdr(doc, "Earlier Career Summary", MAIN_X, MAIN_R - 5, y);
+  if (cv.earlierCareer.length > 0 && y < PAGE2_BOTTOM - 20) {
+    y = sectionHdr(doc, "Earlier Career", MAIN_X, MAIN_R - 5, y);
     for (const e of cv.earlierCareer) {
-      if (y > bottom - 12) break;
-      // Bullet + Company, Place | Dates
+      if (y > PAGE2_BOTTOM - 10) break;
       doc.setFontSize(7);
       setClr(doc, C.gold);
       doc.text(BULLET, MAIN_X + 1, y);
       doc.setFontSize(F.bullet);
       setClr(doc, C.body);
       doc.setFont("helvetica", "bold");
-      const hdr = `${e.company}, `;
-      doc.text(hdr, MAIN_X + 4, y);
-      const hdrW = doc.getTextWidth(hdr);
+      const hdrText = `${e.company}, `;
+      doc.text(hdrText, MAIN_X + 4, y);
+      const hdrW = doc.getTextWidth(hdrText);
       doc.setFont("helvetica", "italic");
       doc.text(e.place, MAIN_X + 4 + hdrW, y);
       const placeW = doc.getTextWidth(e.place);
@@ -380,11 +372,17 @@ function page2(doc: jsPDF, cv: CvData): void {
       setClr(doc, C.gray);
       doc.setFont("helvetica", "normal");
       doc.text(`  |  ${e.dates}`, MAIN_X + 4 + hdrW + placeW, y);
-      y += 5;
+      y += 4;
       doc.setFontSize(F.bullet);
       setClr(doc, C.mid);
-      doc.text(e.oneLiner, MAIN_X + 6, y, { maxWidth: MAIN_W - 10 });
-      y += 6;
+      const truncOne = fitText(doc, e.oneLiner, MAIN_W - 10, 2);
+      const oneLines = doc.splitTextToSize(truncOne, MAIN_W - 10);
+      for (const line of oneLines) {
+        if (y > PAGE2_BOTTOM - 5) break;
+        doc.text(line, MAIN_X + 6, y);
+        y += 3.8;
+      }
+      y += 3;
     }
   }
 }
@@ -432,7 +430,6 @@ function buildCoverLetter(
 
   let y = 54;
 
-  // Date
   const date = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
   doc.setFontSize(10.5);
   setClr(doc, C.body);
