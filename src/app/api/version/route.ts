@@ -4,7 +4,7 @@ export const runtime = "nodejs";
 
 export async function GET() {
   return NextResponse.json({
-    v: "2.1",
+    v: "2.2",
     pdfEngine: "jspdf-v4",
     VERCEL: process.env.VERCEL === "1",
     NODE: process.version,
