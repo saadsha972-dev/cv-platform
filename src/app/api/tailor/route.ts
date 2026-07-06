@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
         if (e.lockTailoring) return e;
         const newBullets = findTailoredBullets(e);
         if (newBullets && newBullets.length > 0) {
-          return { ...e, bullets: newBullets.slice(0, 2) };
+          return { ...e, bullets: newBullets.slice(0, 5) };
         }
         return e;
       }),
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
         if (e.lockTailoring) return e;
         const newBullets = findTailoredBullets(e);
         if (newBullets && newBullets.length > 0) {
-          return { ...e, bullets: newBullets.slice(0, 2) };
+          return { ...e, bullets: newBullets.slice(0, 5) };
         }
         return e;
       }),

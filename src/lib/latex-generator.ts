@@ -358,24 +358,28 @@ function buildCoverLetterPdf(
 ): Buffer {
   const doc = new jsPDF({ compress: true, unit: "mm", format: "a4" });
 
-  const left = 30;
-  const right = PW - 30;
+  const left = 25;
+  const right = PW - 25;
   const textW = right - left;
 
-  // Header
-  doc.setFontSize(16);
+  // Clean up company name
+  const companyName = (company && company !== "Unknown" && company !== "Not specified") ? company : "";
+
+  // Header — name
+  doc.setFontSize(18);
   setColor(doc, CLR.accent);
   doc.setFont("helvetica", "bold");
-  doc.text(CANDIDATE.name, PW / 2, 35, { align: "center" });
+  doc.text("MUHAMMAD ALI BHATTI", PW / 2, 30, { align: "center" });
 
+  // Contact line
   doc.setFontSize(8.5);
   setColor(doc, CLR.mid);
   doc.setFont("helvetica", "normal");
-  doc.text(CANDIDATE.contact, PW / 2, 41, { align: "center" });
+  doc.text("Lahore, Pakistan  |  +92 332 4862219  |  marketbrain@gmail.com  |  Open to International Relocation", PW / 2, 36, { align: "center" });
 
-  hLine(doc, 45, left, right, CLR.bronze, 0.6);
+  hLine(doc, 40, left, right, CLR.accent, 0.8);
 
-  let y = 55;
+  let y = 50;
 
   // Date
   const date = new Date().toLocaleDateString("en-GB", {
@@ -385,55 +389,67 @@ function buildCoverLetterPdf(
   setColor(doc, CLR.sechdr);
   doc.setFont("helvetica", "normal");
   doc.text(date, left, y);
-  y += 8;
+  y += 7;
 
-  // Addressee
-  doc.text(company ? `To the Hiring Manager\n${company}` : "To the Hiring Committee", left, y);
-  y += 10;
+  // Addressee — skip "Not specified"
+  if (companyName) {
+    doc.text(`Hiring Manager`, left, y);
+    y += 4.5;
+    doc.text(companyName, left, y);
+    y += 10;
+  } else {
+    doc.text("Hiring Manager", left, y);
+    y += 10;
+  }
 
-  // Subject
+  // Subject line — bold
   doc.setFont("helvetica", "bold");
-  doc.text(
-    `Re: Application for ${jobTitle}${company ? ` at ${company}` : ""}`,
-    left, y
-  );
+  doc.setFontSize(10);
+  const subject = companyName
+    ? `Re: Application for ${jobTitle} at ${companyName}`
+    : `Re: Application for ${jobTitle}`;
+  doc.text(subject, left, y);
   y += 7;
 
   // Salutation
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
   doc.text("Dear Hiring Manager,", left, y);
-  y += 7;
+  y += 8;
 
-  // Paragraphs
-  const para1 = `I am writing to express my strong interest in the ${jobTitle} position${company ? ` at ${company}` : ""}. With over 20 years of progressive international experience across Germany, the GCC, the UK, and Pakistan, and a proven track record of delivering measurable results in roles demanding both technical command and commercial instinct, I am confident that my background aligns closely with the requirements of this opportunity.`;
+  // Paragraph 1 — Introduction
+  const para1 = `I am writing to express my strong interest in the ${jobTitle} position${companyName ? ` at ${companyName}` : ""}. With over 20 years of progressive international experience across Germany, the GCC, the UK, and Pakistan, and a proven track record of delivering measurable results in roles demanding both technical command and commercial acumen, I am confident that my background aligns closely with the requirements of this opportunity.`;
 
-  const summarySentences = cv.summary.split(". ").slice(1, 3).join(". ").trim();
-  const para2 = `As a ${cv.roleShort}, I have built a career on the kind of outcomes your role demands: ${summarySentences}. My work has consistently paired technical rigor with the ability to win trust across industries, cultures, and senior stakeholders \u2014 translating complex requirements into practical systems that hold up to scrutiny while genuinely improving business performance.`;
+  // Paragraph 2 — Core expertise
+  const summarySlice = cv.summary.split(". ").slice(0, 2).join(". ").trim();
+  const para2 = `Throughout my career as a ${cv.roleShort}, I have consistently delivered outcomes that matter: ${summarySlice}. My work has paired technical rigor with the ability to build trust across industries, cultures, and senior stakeholders, translating complex requirements into practical systems that hold up to scrutiny while genuinely improving business performance.`;
 
-  const keywordsStr = extraKeywords && extraKeywords.length > 0
-    ? `my expertise in ${extraKeywords.slice(0, 3).join(", ")}${extraKeywords.length > 3 ? ", and related areas" : ""}`
-    : "my cross-border experience and audit-grade rigor";
-  const companyRef = company ? `${company}'s` : "your organization's";
-  const para3 = `What draws me specifically to this opportunity is the chance to bring ${keywordsStr} to your team, and to contribute to ${companyRef} continued growth. I am comfortable leading from the front in the field or advising from the boardroom, and I am open to international relocation should the role require it.`;
+  // Paragraph 3 — Role-specific value
+  const kw = extraKeywords && extraKeywords.length > 0 ? extraKeywords.slice(0, 4).join(", ") : "";
+  const para3 = kw
+    ? `What draws me specifically to this opportunity is the chance to bring my expertise in ${kw} to your team${companyName ? `, and to contribute to ${companyName}'s continued growth and success` : ""}. I am equally comfortable leading from the front in the field or advising from the boardroom, and I am open to international relocation should the role require it.`
+    : `What draws me to this opportunity is the alignment between my career achievements and the demands of this role. I am equally comfortable leading from the front in the field or advising from the boardroom, and I am open to international relocation should the role require it.`;
 
-  const para4 = `I would welcome the opportunity to discuss how my experience can contribute to your team's continued success. Thank you for considering my application; I look forward to the possibility of speaking with you further.`;
+  // Paragraph 4 — Closing
+  const para4 = `I would welcome the opportunity to discuss how my experience and qualifications can add value to your team. I am available for an interview at your earliest convenience and can be reached at +92 332 4862219 or marketbrain@gmail.com. Thank you for considering my application.`;
 
+  // Render paragraphs with consistent spacing
   const paragraphs = [para1, para2, para3, para4];
-  for (const p of paragraphs) {
-    const lines = doc.splitTextToSize(p, textW);
+  for (let i = 0; i < paragraphs.length; i++) {
+    const lines = doc.splitTextToSize(paragraphs[i], textW);
     for (const line of lines) {
       doc.text(line, left, y);
-      y += 4.5;
+      y += 4.8;
     }
     y += 3;
   }
 
-  // Closing
-  y += 10;
-  doc.setFont("helvetica", "normal");
+  // Closing — signature block
+  y += 6;
   doc.text("Yours sincerely,", left, y);
-  y += 18;
+  y += 16;
   doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
   doc.text("Muhammad Ali Bhatti", left, y);
 
   return Buffer.from(doc.output("arraybuffer"));

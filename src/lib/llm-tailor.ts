@@ -153,7 +153,7 @@ YOUR TASKS:
    
    d) DEMOTE IRRELEVANT CONTENT: If a role has no relevant experience for this job, keep the bullets factual but brief.
    
-   e) KEEP BULLETS CONCISE: Each bullet should be 1-2 sentences maximum (~150 characters). Do not merge multiple achievements into one long bullet. Each bullet should be a separate, focused achievement.
+   e) RETURN 4-5 BULLETS PER ENTRY: Each entry must have at least 4 rephrased bullets (up to 5 maximum). Use ALL the original bullets as source material — rephrase, split, or combine them. Each bullet should be 1-2 sentences (~120-180 characters). Do NOT leave any entry with fewer than 4 bullets.
    
    f) NEVER FABRICATE: Do not invent new achievements, metrics, or skills. Only rephrase, reorder, and emphasize what's already there.
 
