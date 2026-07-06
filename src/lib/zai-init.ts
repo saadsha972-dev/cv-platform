@@ -1,15 +1,13 @@
 /**
- * LLM Client — replaces z-ai-web-dev-sdk with Groq (free, public API)
- * ====================================================================
- * The z-ai-web-dev-sdk connects to internal-api.z.ai which is a private
- * endpoint (172.25.x.x) unreachable from Vercel. Groq provides the same
- * OpenAI-compatible API, is free, and is accessible from anywhere.
+ * LLM Client — z-ai-web-dev-sdk with Groq fallback
+ * ===================================================
+ * Primary: z-ai-web-dev-sdk (works in server-side code)
+ * Fallback: Groq API (free, requires GROQ_API_KEY env var)
  *
- * Set GROQ_API_KEY env var in Vercel (get one at https://console.groq.com/keys).
- * Falls back to proxying through the Space-Z deployment if no key is set.
+ * The old Space-Z proxy fallback has been removed because the proxy
+ * does not forward /api/* routes, causing "Proxy API 404" errors.
  */
 
-// Minimal type for what we use from the SDK
 interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
@@ -25,7 +23,48 @@ interface ZaiLike {
   };
 }
 
-// --- Groq direct client ---
+// --- z-ai-web-dev-sdk client (primary) ---
+const createSdkClient = (): ZaiLike => {
+  // Dynamic import to avoid issues if SDK is not available
+  let sdkModule: any = null;
+
+  const chatCreate = async (body: any): Promise<ChatCompletionResponse> => {
+    if (!sdkModule) {
+      try {
+        sdkModule = await import("z-ai-web-dev-sdk");
+      } catch (err) {
+        throw new Error("z-ai-web-dev-sdk not available. Set GROQ_API_KEY as fallback.");
+      }
+    }
+
+    const ZAI = sdkModule.default || sdkModule.ZAI;
+    let zai;
+    try {
+      zai = await ZAI.create();
+    } catch (err: any) {
+      throw new Error(`SDK init failed: ${err.message}. Set GROQ_API_KEY in Vercel env.`);
+    }
+
+    try {
+      return await zai.chat.completions.create(body);
+    } catch (err: any) {
+      throw new Error(`SDK chat failed: ${err.message}`);
+    }
+  };
+
+  const invoke = async (name: string, body: any) => {
+    if (!sdkModule) {
+      sdkModule = await import("z-ai-web-dev-sdk");
+    }
+    const ZAI = sdkModule.default || sdkModule.ZAI;
+    const zai = await ZAI.create();
+    return zai.functions.invoke(name, body);
+  };
+
+  return { chat: { completions: { create: chatCreate } }, functions: { invoke } };
+};
+
+// --- Groq direct client (fallback) ---
 const createGroqClient = (apiKey: string): ZaiLike => {
   const baseUrl = "https://api.groq.com/openai/v1";
 
@@ -46,7 +85,6 @@ const createGroqClient = (apiKey: string): ZaiLike => {
     return res.json();
   };
 
-  // Web search is not available via Groq — return empty results
   const invoke = async (name: string, _body: any) => {
     if (name === "web_search") {
       console.log("[groq] web_search not available — returning empty results");
@@ -58,50 +96,41 @@ const createGroqClient = (apiKey: string): ZaiLike => {
   return { chat: { completions: { create: chatCreate } }, functions: { invoke } };
 };
 
-// --- Proxy client (falls back to Space-Z proxy) ---
-const createProxyClient = (): ZaiLike => {
-  const proxyBaseUrl = process.env.SPACE_Z_PROXY || "https://z18n25jy39x1-d.space-z.ai";
-
-  const chatCreate = async (body: any): Promise<ChatCompletionResponse> => {
-    const res = await fetch(`${proxyBaseUrl}/api/ai-complete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`Proxy API ${res.status}: ${errText.slice(0, 200)}`);
-    }
-    return res.json();
-  };
-
-  const invoke = async (name: string, body: any) => {
-    const res = await fetch(`${proxyBaseUrl}/api/ai-function`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, ...body }),
-    });
-    if (!res.ok) throw new Error(`Proxy function ${res.status}`);
-    return res.json();
-  };
-
-  return { chat: { completions: { create: chatCreate } }, functions: { invoke } };
-};
-
 // --- Singleton ---
 let _instance: ZaiLike | null = null;
+let _initError: string | null = null;
 
 export const createZai = async (): Promise<ZaiLike> => {
   if (_instance) return _instance;
+  if (_initError) throw new Error(_initError);
 
+  // Priority 1: Groq API key (reliable from Vercel)
   const groqKey = process.env.GROQ_API_KEY;
   if (groqKey) {
     console.log("[llm] Using Groq API for LLM calls");
     _instance = createGroqClient(groqKey);
-  } else {
-    console.log("[llm] No GROQ_API_KEY set — using Space-Z proxy fallback");
-    _instance = createProxyClient();
+    return _instance;
   }
 
-  return _instance;
+  // Priority 2: z-ai-web-dev-sdk (works in serverless if API is reachable)
+  console.log("[llm] No GROQ_API_KEY — trying z-ai-web-dev-sdk directly...");
+  try {
+    _instance = createSdkClient();
+    // Test with a tiny request to verify it works
+    await _instance.chat.completions.create({
+      messages: [{ role: "user", content: "ping" }],
+      max_tokens: 5,
+    });
+    console.log("[llm] z-ai-web-dev-sdk is working!");
+    return _instance;
+  } catch (err: any) {
+    console.error("[llm] z-ai-web-dev-sdk failed:", err.message);
+    _instance = null; // reset
+  }
+
+  // Both failed
+  _initError =
+    "No LLM available. Fix: Go to Vercel → Settings → Environment Variables → add GROQ_API_KEY. " +
+    "Get a free key at https://console.groq.com/keys (takes 30 seconds).";
+  throw new Error(_initError);
 };

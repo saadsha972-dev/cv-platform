@@ -173,9 +173,16 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("[tailor] Unhandled error:", err.message, err.stack?.split("\n").slice(0, 5));
+
+    // Detect LLM-not-available error and give user actionable message
+    const msg = err.message || "Tailoring failed";
+    const isLlmError = msg.includes("No LLM available") || msg.includes("GROQ_API_KEY") || msg.includes("SDK");
+
     return NextResponse.json({
-      error: err.message || "Tailoring failed",
-      step: "unknown",
+      error: isLlmError
+        ? "AI is not configured. Add GROQ_API_KEY in Vercel Settings → Environment Variables. Get a free key at console.groq.com/keys"
+        : msg,
+      step: isLlmError ? "ai_not_configured" : "unknown",
     }, { status: 500 });
   }
 }
