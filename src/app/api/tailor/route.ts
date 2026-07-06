@@ -16,7 +16,7 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { jobPosting, cvVariantSlug } = body as { jobPosting: string; cvVariantSlug: string };
+    const { jobPosting, cvVariantSlug, jobTitle, company } = body as { jobPosting: string; cvVariantSlug: string; jobTitle?: string; company?: string };
 
     if (!jobPosting || !cvVariantSlug) {
       return NextResponse.json({ error: "jobPosting and cvVariantSlug are required" }, { status: 400 });
@@ -29,13 +29,53 @@ export async function POST(req: NextRequest) {
 
     // --- STEP 1: Analyze job posting ---
     console.log(`[tailor] Step 1/4: Analyzing job posting for ${cvVariantSlug}...`);
-    const analysis = await analyzeJobPosting(jobPosting);
-    console.log(`[tailor] Step 1 done. Job: ${analysis.jobTitle} at ${analysis.company}`);
+    let analysis;
+    let tailored;
+    let usedFallback = false;
+
+    try {
+      analysis = await analyzeJobPosting(jobPosting);
+      console.log(`[tailor] Step 1 done. Job: ${analysis.jobTitle} at ${analysis.company}`);
+    } catch (err: any) {
+      console.warn(`[tailor] Step 1 failed (LLM rate limit?), using basic extraction: ${err.message}`);
+      // Fallback: extract basic info without LLM
+      const firstLine = jobPosting.split("\n")[0]?.trim() || "";
+      analysis = {
+        jobTitle: body.jobTitle || "Unknown Role",
+        company: body.company || "Not specified",
+        location: "Not specified",
+        keywords: [],
+        requirements: [],
+        responsibilities: [],
+        seniority: "senior" as const,
+        tone: "formal" as const,
+        industry: "Unknown",
+      };
+      usedFallback = true;
+    }
 
     // --- STEP 2: Tailor CV content with LLM ---
     console.log(`[tailor] Step 2/4: Tailoring CV content with LLM...`);
-    const tailored = await tailorCvForJob(baseCv, analysis);
-    console.log(`[tailor] Step 2 done. ${Object.keys(tailored.tailoredBullets || {}).length} bullet sets, ${tailored.tailoredSidebarSection1?.items?.length || 0} sidebar items, ${tailored.tailoredCoverLetter ? 'cover letter' : 'no cover letter'}`);
+    try {
+      tailored = await tailorCvForJob(baseCv, analysis);
+      console.log(`[tailor] Step 2 done. ${Object.keys(tailored.tailoredBullets || {}).length} bullet sets`);
+    } catch (err: any) {
+      console.warn(`[tailor] Step 2 failed (LLM rate limit?), generating base CV without tailoring: ${err.message}`);
+      // Fallback: use base CV as-is
+      const currentSb1 = baseCv.sidebarPage1[0];
+      tailored = {
+        tailoredSummary: baseCv.summary,
+        tailoredBullets: {},
+        matchedKeywords: [],
+        missingKeywords: [],
+        tailoredSidebarSection1: {
+          title: currentSb1?.title || "Core Competencies",
+          items: currentSb1?.items.map((i: any) => (Array.isArray(i) ? i[0] : String(i))) || [],
+        },
+        tailoredCoverLetter: "",
+      };
+      usedFallback = true;
+    }
 
     // Build a lookup that matches bullets by job title (handles both
     // "Title" and "Title @ Company" key formats returned by the LLM)
@@ -174,6 +214,7 @@ export async function POST(req: NextRequest) {
       tailoredContent: tailored,
       cvPdfBase64,
       coverLetterPdfBase64,
+      fallback: usedFallback,
     });
   } catch (err: any) {
     console.error("[tailor] Unhandled error:", err.message, err.stack?.split("\n").slice(0, 5));

@@ -62,12 +62,25 @@ export async function POST(req: NextRequest) {
         });
         if (existing) continue;
 
-        const match = await scoreJobMatch(
-          CV_VARIANTS.find((c) => c.slug === profile.cvVariant.slug)!,
-          job.title,
-          job.description,
-          config.keywords
-        );
+        let match: { matchScore: number; rationale: string; topKeywords: string[] };
+        try {
+          match = await scoreJobMatch(
+            CV_VARIANTS.find((c) => c.slug === profile.cvVariant.slug)!,
+            job.title,
+            job.description,
+            config.keywords
+          );
+        } catch (err: any) {
+          // Fallback: simple keyword matching when LLM is rate-limited
+          const desc = (job.title + " " + job.description).toLowerCase();
+          const matched = config.keywords.filter(k => desc.includes(k.toLowerCase()));
+          const score = Math.min(95, 30 + matched.length * 12);
+          match = {
+            matchScore: score,
+            rationale: `Keyword match: ${matched.join(", ") || "partial match"}. (LLM scoring unavailable due to rate limits.)`,
+            topKeywords: matched,
+          };
+        }
 
         const created = await db.jobPosting.create({
           data: {
