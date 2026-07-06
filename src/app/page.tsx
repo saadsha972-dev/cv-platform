@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   FileText, Search, Mail, Loader2, Download, ExternalLink, RefreshCw,
   Briefcase, Target, TrendingUp, Clock, CheckCircle2, AlertCircle,
-  Sparkles, Wand2, Send, Eye, Filter,
+  Sparkles, Wand2, Send, Eye, Filter, Globe,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ export default function HomePage() {
       {/* Main Content */}
       <main className="flex-1 container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6 max-w-md mx-auto">
+          <TabsList className="grid w-full grid-cols-4 mb-6 max-w-lg mx-auto">
             <TabsTrigger value="dashboard" className="text-xs sm:text-sm">
               <TrendingUp className="w-4 h-4 mr-1.5" />
               Dashboard
@@ -117,6 +117,10 @@ export default function HomePage() {
               <Search className="w-4 h-4 mr-1.5" />
               Job Hunter
             </TabsTrigger>
+            <TabsTrigger value="remote" className="text-xs sm:text-sm">
+              <Globe className="w-4 h-4 mr-1.5" />
+              Remote Jobs
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard">
@@ -127,6 +131,9 @@ export default function HomePage() {
           </TabsContent>
           <TabsContent value="hunter">
             <HunterTab />
+          </TabsContent>
+          <TabsContent value="remote">
+            <RemoteJobsTab />
           </TabsContent>
         </Tabs>
       </main>
@@ -1070,6 +1077,199 @@ function JobCard({ job, onStatusUpdate }: { job: JobPosting; onStatusUpdate: (id
           {job.description}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// REMOTE JOBS TAB
+// Searches for genuinely remote-friendly roles (QHSE, ISO, Compliance,
+// Quality, Safety) in USA, Germany, UK, Australia, Canada.
+// ---------------------------------------------------------------------------
+interface RemoteJob {
+  title: string;
+  company: string;
+  location: string;
+  url: string;
+  description: string;
+  source: string;
+  country: string;
+}
+
+const REMOTE_COUNTRIES = ["All Countries", "USA", "Germany", "United Kingdom", "Australia", "Canada"];
+
+function RemoteJobsTab() {
+  const { toast } = useToast();
+  const [jobs, setJobs] = useState<RemoteJob[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState("All Countries");
+  const [filterCountry, setFilterCountry] = useState("All");
+
+  const handleSearch = async () => {
+    setSearching(true);
+    setJobs([]);
+    try {
+      const body: any = {};
+      if (selectedCountry !== "All Countries") body.country = selectedCountry;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
+
+      const res = await fetch("/api/remote-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      const data = await res.json();
+      if (data.success && Array.isArray(data.jobs)) {
+        setJobs(data.jobs);
+        toast({ title: `Found ${data.jobs.length} remote jobs`, description: selectedCountry !== "All Countries" ? `Filtered to ${selectedCountry}` : "Across all 5 countries" });
+      } else {
+        throw new Error(data.error || "No remote jobs found");
+      }
+    } catch (err: any) {
+      const msg = err.name === "AbortError" ? "Search timed out. Try again." : err.message;
+      toast({ title: "Remote search failed", description: msg, variant: "destructive" });
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const filteredJobs = filterCountry === "All" ? jobs : jobs.filter((j) => j.country === filterCountry);
+
+  return (
+    <div className="space-y-6">
+      {/* Header Card */}
+      <Card className="border-[#1b365d]/20 bg-gradient-to-br from-[#1b365d] to-[#2d3748] text-white">
+        <CardHeader>
+          <CardTitle className="text-xl flex items-center gap-2">
+            <Globe className="w-5 h-5 text-[#8c7853]" />
+            Remote Job Search
+          </CardTitle>
+          <CardDescription className="text-slate-300">
+            Find genuinely remote-friendly roles in QHSE, ISO Auditing, Compliance, Quality Management, and Safety Consulting across USA, Germany, UK, Australia, and Canada.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={selectedCountry} onValueChange={setSelectedCountry}>
+              <SelectTrigger className="w-48 bg-white/10 border-white/30 text-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REMOTE_COUNTRIES.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              onClick={handleSearch}
+              disabled={searching}
+              className="bg-[#8c7853] hover:bg-[#8c7853]/90 text-white"
+            >
+              {searching ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Searching Remote Jobs...
+                </>
+              ) : (
+                <>
+                  <Search className="w-4 h-4 mr-2" />
+                  Search Remote Jobs
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Results */}
+      <Card className="border-slate-200">
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-[#1b365d]">
+                <Briefcase className="w-5 h-5 text-[#8c7853]" />
+                Remote Jobs Found ({filteredJobs.length})
+              </CardTitle>
+              <CardDescription>Roles that can realistically be performed remotely — QHSE, ISO, Compliance, Quality, Safety.</CardDescription>
+            </div>
+            {jobs.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-slate-400" />
+                <Select value={filterCountry} onValueChange={setFilterCountry}>
+                  <SelectTrigger className="w-36 h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Countries</SelectItem>
+                    <SelectItem value="USA">USA</SelectItem>
+                    <SelectItem value="Germany">Germany</SelectItem>
+                    <SelectItem value="United Kingdom">UK</SelectItem>
+                    <SelectItem value="Australia">Australia</SelectItem>
+                    <SelectItem value="Canada">Canada</SelectItem>
+                    <SelectItem value="Global">Global</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {searching ? (
+            <div className="space-y-3 py-4">
+              {[...Array(8)].map((_, i) => (
+                <Skeleton key={i} className="h-24" />
+              ))}
+            </div>
+          ) : filteredJobs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center text-slate-400">
+              <Globe className="w-12 h-12 mb-3 opacity-30" />
+              <p className="text-sm">No remote jobs found yet</p>
+              <p className="text-xs mt-1">Click "Search Remote Jobs" to find remote positions matching your skills.</p>
+            </div>
+          ) : (
+            <ScrollArea className="h-[700px] pr-4">
+              <div className="space-y-3">
+                {filteredJobs.map((job, idx) => (
+                  <div key={`${job.url}-${idx}`} className="p-4 rounded-lg border border-slate-200 hover:border-[#8c7853]/40 transition-colors">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-sm font-semibold text-[#1b365d]">{job.title}</h4>
+                          <Badge variant="outline" className="text-[10px] uppercase">{job.source}</Badge>
+                          <Badge className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Remote</Badge>
+                        </div>
+                        <p className="text-xs text-slate-600 mt-1">
+                          {job.company} · {job.location}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {job.country}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2 line-clamp-2">{job.description}</p>
+                    <div className="flex items-center gap-2 mt-3">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs text-[#1b365d]"
+                        onClick={() => window.open(job.url, "_blank", "noopener,noreferrer")}
+                      >
+                        <ExternalLink className="w-3 h-3 mr-1" />
+                        View Job
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

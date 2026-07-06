@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
 
       // Score each job and save
       let saved = 0;
-      for (const job of jobs.slice(0, 25)) {
+      for (const job of jobs.slice(0, 40)) {
         const existing = await db.jobPosting.findFirst({
           where: { url: job.url, searchProfileId: profile.id },
         });

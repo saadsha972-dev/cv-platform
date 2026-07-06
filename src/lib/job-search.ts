@@ -33,8 +33,8 @@ async function serperSearch(query: string, apiKey: string, gl?: string): Promise
     q: query,
     num: 20, // More results per query
     hl: "en",
-    // Date recency filter: past month — ensures recent jobs
-    tbs: "qdr:m",
+    // Date recency filter: past WEEK for maximum freshness
+    tbs: "qdr:w",
   };
 
   // Set geolocation based on country if possible
@@ -278,22 +278,39 @@ export const searchJobs = async (profile: SearchProfileConfig): Promise<JobSearc
 
   console.log(`[job-search] Running ${queries.length} queries for ${profile.cvVariantRoleShort}`);
 
-  for (const { q, gl } of queries) {
-    try {
-      const items = await serperSearch(q, apiKey, gl);
-      const jobs = parseResults(items, profile);
-      for (const r of jobs) {
-        if (r.url && !seenUrls.has(r.url)) {
-          seenUrls.add(r.url);
-          allResults.push(r);
+  // Execute queries in parallel batches of 3 for speed
+  const BATCH = 3;
+  for (let i = 0; i < queries.length; i += BATCH) {
+    const batch = queries.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      batch.map(async ({ q, gl }) => {
+        try {
+          const items = await serperSearch(q, apiKey, gl);
+          const jobs = parseResults(items, profile);
+          console.log(`[job-search] Query "${q.slice(0, 60)}..." -> ${jobs.length} jobs`);
+          return jobs;
+        } catch (err: any) {
+          console.error(`[job-search] Query failed:`, err.message);
+          return [] as ReturnType<typeof parseResults>;
+        }
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        for (const job of r.value) {
+          if (job.url && !seenUrls.has(job.url)) {
+            seenUrls.add(job.url);
+            allResults.push(job);
+          }
         }
       }
-      console.log(`[job-search] Query "${q.slice(0, 60)}..." → ${jobs.length} jobs`);
-    } catch (err: any) {
-      console.error(`[job-search] Query failed:`, err.message);
     }
-    // Delay between queries to respect rate limits
-    await new Promise((r) => setTimeout(r, 800));
+
+    // Delay between batches
+    if (i + BATCH < queries.length) {
+      await new Promise((r) => setTimeout(r, 600));
+    }
   }
 
   console.log(`[job-search] Total: ${allResults.length} unique job postings`);

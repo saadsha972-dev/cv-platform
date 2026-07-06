@@ -2,16 +2,15 @@
  * PDF CV Generator
  * =================
  * Generates tailored CV and cover letter PDFs using jsPDF (pure JS).
- * Layout matches the original QHSE Manager CV sample provided by the candidate.
+ * Layout matches the original QHSE Manager / QMS Lead Auditor CV sample.
  *
- * Key layout measurements (from sample PDF):
- *   A4 = 210 x 297 mm
- *   Left margin: 13mm, Right margin: 12mm
- *   Sidebar: 57mm wide, left-aligned at 13mm
- *   Gap: 5mm
- *   Main column: 123mm wide, starts at 75mm
- *   Header: name at y=40, title at y=48, contact at y=55, rule at y=60
- *   Content starts: y=66 (both sidebar and main)
+ * A4 = 210 x 297 mm
+ * Left margin: 13mm, Right margin: 12mm
+ * Sidebar: 57mm wide, left-aligned at 13mm
+ * Gap: 5mm
+ * Main column: 123mm wide, starts at 75mm
+ * Header: name at y=40, title at y=48, contact at y=55, rule at y=60
+ * Content starts: y=68 (both sidebar and main)
  */
 
 import { jsPDF } from "jspdf";
@@ -30,31 +29,30 @@ if (!existsSync(PDF_OUT_DIR)) mkdirSync(PDF_OUT_DIR, { recursive: true });
 
 // ---------------------------------------------------------------------------
 // LAYOUT CONSTANTS (all in mm, A4 = 210 x 297)
-// Matched to the original CV sample PDF
 // ---------------------------------------------------------------------------
 const PW = 210;
 const PH = 297;
-const ML = 13;           // left margin (sample: ~13mm)
-const MR = 12;           // right margin (sample: ~12mm)
-const CW = PW - ML - MR; // content width = 185
+const ML = 13;
+const MR = 12;
+const CW = PW - ML - MR; // 185
 
-const SB_W = 57;         // sidebar width (sample: ~57mm)
-const GAP = 5;           // gap between sidebar and main (sample: ~5mm)
-const MAIN_W = CW - SB_W - GAP; // main column width = 123
+const SB_W = 57;
+const GAP = 5;
+const MAIN_W = CW - SB_W - GAP; // 123
 
-const SB_X = ML;                  // sidebar left edge = 13
-const SB_R = ML + SB_W;           // sidebar right edge = 70
-const MAIN_X = ML + SB_W + GAP;   // main column left edge = 75
-const MAIN_R = ML + CW;           // right edge of content = 198
+const SB_X = ML;                  // 13
+const SB_R = ML + SB_W;           // 70
+const MAIN_X = ML + SB_W + GAP;   // 75
+const MAIN_R = ML + CW;           // 198
 
 // Vertical layout
-const HDR_NAME_Y = 40;    // name baseline
-const HDR_TITLE_Y = 48;   // title baseline
-const HDR_CONTACT_Y = 55; // contact baseline
-const HDR_RULE_Y = 60;    // horizontal rule
-const CONTENT_TOP = 66;   // where sidebar + main content starts (page 1)
+const HDR_NAME_Y = 40;
+const HDR_TITLE_Y = 48;
+const HDR_CONTACT_Y = 55;
+const HDR_RULE_Y = 60;
+const CONTENT_TOP = 68; // slightly more space after header rule
 
-// Colors (matched to sample)
+// Colors
 const CLR = {
   accent: [27, 54, 93] as [number, number, number],     // #1b365d
   sechdr: [45, 55, 72] as [number, number, number],     // #2d3748
@@ -64,6 +62,7 @@ const CLR = {
   light: [152, 156, 165] as [number, number, number],   // #989ca5
   rule: [203, 213, 224] as [number, number, number],    // #cbd5e0
   bg: [248, 249, 250] as [number, number, number],      // #f8f9fa
+  white: [255, 255, 255] as [number, number, number],
 };
 
 // ---------------------------------------------------------------------------
@@ -83,73 +82,74 @@ function hLine(doc: jsPDF, y: number, x1: number, x2: number, color?: [number, n
 // SECTION HEADERS
 // ---------------------------------------------------------------------------
 function sidebarSectionHeader(doc: jsPDF, title: string, y: number): number {
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   setColor(doc, CLR.accent);
   doc.setFont("helvetica", "bold");
   doc.text(title.toUpperCase(), SB_X, y);
   const ruleY = y + 1.5;
   hLine(doc, ruleY, SB_X, SB_R, CLR.rule, 0.3);
-  return ruleY + 3; // 3mm gap after rule (sample: ~4mm)
+  return ruleY + 3;
 }
 
 function mainSectionHeader(doc: jsPDF, title: string, y: number): number {
-  doc.setFontSize(9.5);
+  doc.setFontSize(9);
   setColor(doc, CLR.accent);
   doc.setFont("helvetica", "bold");
   doc.text(title.toUpperCase(), MAIN_X, y);
   const ruleY = y + 1.5;
   hLine(doc, ruleY, MAIN_X, MAIN_R, CLR.bronze, 0.4);
-  return ruleY + 3.5; // 3.5mm gap after rule
+  return ruleY + 3;
 }
 
 // ---------------------------------------------------------------------------
 // SIDEBAR SECTION BUILDER
 // ---------------------------------------------------------------------------
-function buildSidebarSection(doc: jsPDF, section: SidebarSection, startY: number): number {
+function buildSidebarSection(doc: jsPDF, section: SidebarSection, startY: number, maxBottom?: number): number {
   let y = sidebarSectionHeader(doc, section.title, startY);
 
   for (const item of section.items) {
+    if (maxBottom && y > maxBottom - 4) break;
+
     if (Array.isArray(item) && typeof item[1] === "number") {
-      // Skill proficiency: [skillName, rating]
+      // Skill proficiency: [skillName, rating] — render with dots
       const [skill, rating] = item as [string, number];
       doc.setFontSize(7.5);
       setColor(doc, CLR.sechdr);
       doc.setFont("helvetica", "normal");
       doc.text(skill, SB_X, y, { maxWidth: SB_W - 18 });
-      // Draw dots
       const dotX = SB_R - 14;
       for (let i = 0; i < 5; i++) {
         setColor(doc, i < rating ? CLR.bronze : CLR.rule);
-        doc.setFontSize(9);
+        doc.setFontSize(8);
         doc.text(i < rating ? "\u2022" : "\u25CB", dotX + i * 2.8, y);
       }
-      y += 4.5; // 4.5mm per skill bar (sample: ~4.8mm)
+      y += 4.2;
     } else if (Array.isArray(item) && typeof item[1] === "string") {
-      // [title, subtitle]
+      // [title, subtitle] — e.g. "CQI-IRCA Lead Auditor", "QMS / EMS / OHSAS"
       const [main, sub] = item as [string, string];
       doc.setFontSize(7.5);
       setColor(doc, CLR.sechdr);
       doc.setFont("helvetica", "bold");
       doc.text(main, SB_X, y, { maxWidth: SB_W - 4 });
       if (sub) {
+        y += 3.5;
         doc.setFontSize(6.5);
         setColor(doc, CLR.mid);
         doc.setFont("helvetica", "normal");
-        doc.text(sub, SB_X + 2, y + 3.5, { maxWidth: SB_W - 6 });
-        y += 3.5;
+        doc.text(sub, SB_X + 2, y, { maxWidth: SB_W - 6 });
       }
       y += 4;
     } else {
-      // Plain string bullet
+      // Plain string bullet — e.g. "ISO 9001:2015 QMS"
       doc.setFontSize(7.5);
       setColor(doc, CLR.sechdr);
       doc.setFont("helvetica", "normal");
       const text = `\u2022  ${String(item)}`;
       doc.text(text, SB_X, y, { maxWidth: SB_W - 4 });
-      y += 4.2; // 4.2mm per bullet (sample: ~4.5mm)
+      y += 4;
     }
   }
-  return y + 4; // 4mm gap between sections (sample: ~4mm)
+  return y + 3.5; // gap between sections
 }
 
 // ---------------------------------------------------------------------------
@@ -176,10 +176,12 @@ function buildExperienceEntry(
   doc.setFont("helvetica", "italic");
   doc.text(e.company, x, y, { maxWidth: w - 30 });
   doc.setFontSize(7);
+  setColor(doc, CLR.mid);
+  doc.setFont("helvetica", "normal");
   doc.text(e.location, xR, y, { align: "right" });
-  y += 4.5;
+  y += 4;
 
-  // Bullets
+  // Bullets — compact spacing
   doc.setFontSize(7.5);
   setColor(doc, CLR.sechdr);
   doc.setFont("helvetica", "normal");
@@ -187,9 +189,9 @@ function buildExperienceEntry(
     const bulletLines = doc.splitTextToSize(`\u2022  ${b}`, w - 4);
     for (const line of bulletLines) {
       doc.text(line, x + 2, y);
-      y += 3.5; // 3.5mm per line (sample: ~3.5-4mm)
+      y += 3.3;
     }
-    y += 0.8; // small gap between bullets
+    y += 0.5; // minimal gap between bullets
   }
   return y;
 }
@@ -198,13 +200,13 @@ function buildExperienceEntry(
 // CV PAGE 1
 // ---------------------------------------------------------------------------
 function buildCvPage1(doc: jsPDF, cv: CvData): void {
-  // === HEADER (centered, matching sample) ===
-  doc.setFontSize(20);
+  // === HEADER (centered) ===
+  doc.setFontSize(18);
   setColor(doc, CLR.accent);
   doc.setFont("helvetica", "bold");
   doc.text(CANDIDATE.name, PW / 2, HDR_NAME_Y, { align: "center" });
 
-  doc.setFontSize(10);
+  doc.setFontSize(9.5);
   setColor(doc, CLR.dark);
   doc.setFont("helvetica", "normal");
   doc.text(cv.roleTitle, PW / 2, HDR_TITLE_Y, { align: "center" });
@@ -216,28 +218,28 @@ function buildCvPage1(doc: jsPDF, cv: CvData): void {
   // Full-width bronze rule below header
   hLine(doc, HDR_RULE_Y, ML, ML + CW, CLR.bronze, 0.6);
 
-  // === SIDEBAR BACKGROUND ===
+  // === SIDEBAR BACKGROUND (full height to bottom) ===
   doc.setFillColor(CLR.bg[0], CLR.bg[1], CLR.bg[2]);
-  doc.rect(SB_X - 2, CONTENT_TOP - 2, SB_W + 4, PH - CONTENT_TOP - 8, "F");
+  doc.rect(SB_X - 2, CONTENT_TOP - 2, SB_W + 4, PH - CONTENT_TOP - 6, "F");
 
   // === SIDEBAR CONTENT (page 1) ===
-  let sbY = CONTENT_TOP + 2;
+  let sbY = CONTENT_TOP + 1;
   for (const section of cv.sidebarPage1) {
-    sbY = buildSidebarSection(doc, section, sbY);
+    sbY = buildSidebarSection(doc, section, sbY, PH - 8);
   }
 
   // === MAIN CONTENT (page 1) ===
-  let mainY = CONTENT_TOP + 2;
+  let mainY = CONTENT_TOP + 1;
 
   // Professional Summary
   mainY = mainSectionHeader(doc, "Professional Summary", mainY);
-  doc.setFontSize(8);
+  doc.setFontSize(7.5);
   setColor(doc, CLR.sechdr);
   doc.setFont("helvetica", "normal");
   const summaryLines = doc.splitTextToSize(cv.summary, MAIN_W);
   for (const line of summaryLines) {
     doc.text(line, MAIN_X, mainY);
-    mainY += 3.8; // 3.8mm per summary line (sample: ~4mm)
+    mainY += 3.5;
   }
   mainY += 3;
 
@@ -246,7 +248,7 @@ function buildCvPage1(doc: jsPDF, cv: CvData): void {
   const years = ["2008", "2014", "2015", "2017", "2018", "2020", "2024"];
   const companies = ["Etisalat/PTCL", "Independent", "Guardian ICS", "DQS-Pak", "Mace", "Power Intl.", "Michael Kors"];
   const colW = MAIN_W / 7;
-  doc.setFontSize(7.5);
+  doc.setFontSize(7);
   setColor(doc, CLR.accent);
   doc.setFont("helvetica", "bold");
   for (let i = 0; i < 7; i++) {
@@ -254,20 +256,20 @@ function buildCvPage1(doc: jsPDF, cv: CvData): void {
   }
   mainY += 3;
   hLine(doc, mainY, MAIN_X, MAIN_R, CLR.bronze, 0.3);
-  mainY += 3.5;
-  doc.setFontSize(6.5);
+  mainY += 3;
+  doc.setFontSize(6);
   setColor(doc, CLR.sechdr);
   doc.setFont("helvetica", "normal");
   for (let i = 0; i < 7; i++) {
     doc.text(companies[i], MAIN_X + colW * i + colW / 2, mainY, { align: "center" });
   }
-  mainY += 6;
+  mainY += 5;
 
   // Professional Experience (page 1 entries)
   mainY = mainSectionHeader(doc, "Professional Experience", mainY);
   for (const entry of cv.experiencePage1) {
     mainY = buildExperienceEntry(doc, entry, mainY, MAIN_X, MAIN_R, MAIN_W);
-    mainY += 2.5;
+    mainY += 2;
   }
 }
 
@@ -275,9 +277,8 @@ function buildCvPage1(doc: jsPDF, cv: CvData): void {
 // CV PAGE 2
 // ---------------------------------------------------------------------------
 function buildCvPage2(doc: jsPDF, cv: CvData): void {
-  // === PAGE 2 HEADER (matching sample) ===
-  // Sample page 2 header: "Page 2 | QHSE Manager | marketbrain@gmail.com | +92 332 4862219"
-  doc.setFontSize(7.5);
+  // === PAGE 2 HEADER ===
+  doc.setFontSize(7);
   setColor(doc, CLR.accent);
   doc.setFont("helvetica", "bold");
   doc.text(`Page 2  |  ${cv.roleShort}  |  ${CANDIDATE.email}  |  ${CANDIDATE.phone}`, PW / 2, 10, { align: "center" });
@@ -288,42 +289,42 @@ function buildCvPage2(doc: jsPDF, cv: CvData): void {
 
   // Sidebar background
   doc.setFillColor(CLR.bg[0], CLR.bg[1], CLR.bg[2]);
-  doc.rect(SB_X - 2, p2Top - 2, SB_W + 4, PH - p2Top - 8, "F");
+  doc.rect(SB_X - 2, p2Top - 2, SB_W + 4, PH - p2Top - 6, "F");
 
   // Sidebar content (page 2)
-  let sbY = p2Top + 2;
+  let sbY = p2Top + 1;
   for (const section of cv.sidebarPage2) {
-    sbY = buildSidebarSection(doc, section, sbY);
+    sbY = buildSidebarSection(doc, section, sbY, PH - 8);
   }
 
   // Main content (page 2): experience entries continued
-  let mainY = p2Top + 2;
+  let mainY = p2Top + 1;
   for (const entry of cv.experiencePage2) {
     mainY = buildExperienceEntry(doc, entry, mainY, MAIN_X, MAIN_R, MAIN_W);
-    mainY += 2.5;
+    mainY += 2;
   }
 
   // Earlier Career Summary
   if (cv.earlierCareer.length > 0) {
     mainY = mainSectionHeader(doc, "Earlier Career Summary", mainY);
     for (const e of cv.earlierCareer) {
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       setColor(doc, CLR.sechdr);
       doc.setFont("helvetica", "bold");
       doc.text(`\u2022  ${e.company}, `, MAIN_X, mainY, { maxWidth: MAIN_W });
       const headerW = doc.getTextWidth(`\u2022  ${e.company}, `);
       doc.setFont("helvetica", "italic");
       doc.text(e.place, MAIN_X + headerW, mainY);
-      doc.setFontSize(7);
+      doc.setFontSize(6.5);
       setColor(doc, CLR.mid);
       doc.setFont("helvetica", "normal");
       const placeW = doc.getTextWidth(e.place);
       doc.text(`  |  ${e.dates}`, MAIN_X + headerW + placeW, mainY);
-      mainY += 4.5;
-      doc.setFontSize(7.5);
+      mainY += 4;
+      doc.setFontSize(7);
       setColor(doc, CLR.mid);
       doc.text(e.oneLiner, MAIN_X + 3, mainY, { maxWidth: MAIN_W - 6 });
-      mainY += 5;
+      mainY += 4.5;
     }
   }
 }
@@ -356,23 +357,22 @@ function buildCoverLetterPdf(
   const left = 25;
   const right = PW - 25;
   const textW = right - left;
-
   const companyName = (company && company !== "Unknown" && company !== "Not specified") ? company : "";
 
   // === HEADER (matching CV style) ===
-  doc.setFontSize(18);
+  doc.setFontSize(16);
   setColor(doc, CLR.accent);
   doc.setFont("helvetica", "bold");
-  doc.text("MUHAMMAD ALI BHATTI", PW / 2, 28, { align: "center" });
+  doc.text("MUHAMMAD ALI BHATTI", PW / 2, 30, { align: "center" });
 
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   setColor(doc, CLR.mid);
   doc.setFont("helvetica", "normal");
-  doc.text("Lahore, Pakistan  |  +92 332 4862219  |  marketbrain@gmail.com  |  Open to International Relocation", PW / 2, 35, { align: "center" });
+  doc.text("Lahore, Pakistan  |  +92 332 4862219  |  marketbrain@gmail.com", PW / 2, 37, { align: "center" });
 
-  hLine(doc, 40, left, right, CLR.accent, 0.8);
+  hLine(doc, 42, left, right, CLR.accent, 0.6);
 
-  let y = 52;
+  let y = 54;
 
   // Date
   const date = new Date().toLocaleDateString("en-GB", {
@@ -382,67 +382,70 @@ function buildCoverLetterPdf(
   setColor(doc, CLR.sechdr);
   doc.setFont("helvetica", "normal");
   doc.text(date, left, y);
-  y += 8;
+  y += 10;
 
   // Addressee
   if (companyName) {
     doc.text("Hiring Manager", left, y);
-    y += 5;
+    y += 6;
     doc.text(companyName, left, y);
-    y += 12;
+    y += 10;
   } else {
     doc.text("Hiring Manager", left, y);
-    y += 12;
+    y += 10;
   }
 
-  // Subject
+  // Subject line
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   const subject = companyName
     ? `Re: Application for ${jobTitle} at ${companyName}`
     : `Re: Application for ${jobTitle}`;
   doc.text(subject, left, y);
-  y += 8;
+  y += 10;
 
   // Salutation
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
   doc.text("Dear Hiring Manager,", left, y);
   y += 8;
 
-  // --- PARAGRAPH 1: Introduction (concise) ---
-  const para1 = `I am writing to express my interest in the ${jobTitle} position${companyName ? ` at ${companyName}` : ""}. With over 20 years of international experience across Germany, the GCC, the UK, and Pakistan in ${cv.roleShort} roles, I bring a proven track record of delivering measurable compliance, safety, and quality outcomes for complex multi-site operations.`;
+  // Helper for writing paragraphs
+  const writePara = (text: string, spacing = 4.5) => {
+    const lines = doc.splitTextToSize(text, textW);
+    for (const line of lines) {
+      doc.text(line, left, y);
+      y += spacing;
+    }
+    y += 3;
+  };
 
-  const lines1 = doc.splitTextToSize(para1, textW);
-  for (const line of lines1) { doc.text(line, left, y); y += 4.8; }
-  y += 4;
+  // --- PARAGRAPH 1: Opening — who I am and why I'm writing ---
+  setColor(doc, CLR.sechdr);
+  doc.setFontSize(10);
+  const p1 = `I am writing to express my strong interest in the ${jobTitle} position${companyName ? ` at ${companyName}` : ""}. With over 20 years of international experience across Germany, the GCC, the UK, and Pakistan in ${cv.roleShort} roles, I bring a proven track record of delivering measurable compliance, safety, and quality outcomes for complex multi-site operations.`;
+  writePara(p1);
 
   // --- PARAGRAPH 2: Core value proposition ---
-  const summaryFirst = cv.summary.split(". ").slice(0, 2).join(". ").trim();
-  const para2 = `As a ${cv.roleShort}, my core strengths include ${summaryFirst}. I have successfully led cross-functional teams, managed regulatory compliance across multiple jurisdictions, and delivered zero-incident safety records on high-value projects. My certifications in ISO standards and NEBOSH further underpin my technical credibility.`;
+  const p2 = `Throughout my career, I have successfully led cross-functional teams, managed regulatory compliance across multiple jurisdictions, and delivered zero-incident safety records on high-value projects. My certifications including CQI-IRCA Lead Auditor, NEBOSH IGC, and ASQ CMQ/OE, combined with hands-on expertise in ISO 9001, ISO 14001, and ISO 45001 frameworks, provide a strong technical foundation for this role.`;
+  writePara(p2);
 
-  const lines2 = doc.splitTextToSize(para2, textW);
-  for (const line of lines2) { doc.text(line, left, y); y += 4.8; }
-  y += 4;
-
-  // --- PARAGRAPH 3: Role-specific alignment + keywords ---
+  // --- PARAGRAPH 3: Role-specific alignment ---
   const kw = extraKeywords && extraKeywords.length > 0 ? extraKeywords.slice(0, 4).join(", ") : "";
-  const para3 = kw
-    ? `I am particularly drawn to this role because of the strong alignment between my expertise in ${kw} and the position requirements${companyName ? ` at ${companyName}` : ""}. I am available for immediate start, open to international relocation, and would welcome the opportunity to contribute to your team's continued success.`
-    : `I am particularly drawn to this role because of the strong alignment between my career achievements and the position requirements${companyName ? ` at ${companyName}` : ""}. I am available for immediate start, open to international relocation, and would welcome the opportunity to contribute to your team's continued success.`;
-
-  const lines3 = doc.splitTextToSize(para3, textW);
-  for (const line of lines3) { doc.text(line, left, y); y += 4.8; }
-  y += 4;
+  const p3 = kw
+    ? `I am particularly drawn to this opportunity because of the direct alignment between my expertise in ${kw} and the requirements of this position${companyName ? ` at ${companyName}` : ""}. I am confident that my experience can contribute meaningfully to your organisation's objectives and am available for an immediate start, open to international relocation.`
+    : `I am particularly drawn to this opportunity because of the strong alignment between my career achievements and the requirements of this position${companyName ? ` at ${companyName}` : ""}. I am confident that my experience can contribute meaningfully to your organisation's objectives and am available for an immediate start, open to international relocation.`;
+  writePara(p3);
 
   // --- CLOSING ---
-  doc.text("I would welcome the opportunity to discuss how my experience can add value to your organisation. I am available for an interview at your earliest convenience.", left, y);
-  y += 14;
+  const p4 = `I would welcome the opportunity to discuss how my experience and qualifications can add value to your team. Please find my tailored CV attached for your review. I am available for an interview at your earliest convenience.`;
+  writePara(p4);
 
+  y += 4;
   doc.text("Yours sincerely,", left, y);
-  y += 18;
+  y += 16;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
+  setColor(doc, CLR.accent);
   doc.text("Muhammad Ali Bhatti", left, y);
   y += 5;
   doc.setFontSize(9);
