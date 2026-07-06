@@ -582,7 +582,11 @@ function HunterTab() {
     try {
       const res = await fetch("/api/search-profiles");
       const data = await res.json();
-      setProfiles(data.profiles || []);
+      // Safety filter: never show remote profiles in Job Hunter tab
+      const localProfiles = (data.profiles || []).filter(
+        (p: SearchProfile) => !p.name.toLowerCase().includes("remote")
+      );
+      setProfiles(localProfiles);
     } catch (err) {
       console.error(err);
     } finally {
@@ -1150,7 +1154,7 @@ function RemoteJobsTab() {
             Remote Job Search
           </CardTitle>
           <CardDescription className="text-slate-300">
-            Find genuinely remote-friendly roles in QHSE, ISO Auditing, Compliance, Quality Management, and Safety Consulting across USA, Germany, UK, Australia, and Canada.
+            Find remote-friendly managerial, director, and senior specialist roles across all industries — USA, Germany, UK, Australia, and Canada.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1195,7 +1199,7 @@ function RemoteJobsTab() {
                 <Briefcase className="w-5 h-5 text-[#8c7853]" />
                 Remote Jobs Found ({filteredJobs.length})
               </CardTitle>
-              <CardDescription>Roles that can realistically be performed remotely — QHSE, ISO, Compliance, Quality, Safety.</CardDescription>
+              <CardDescription>Remote positions from LinkedIn, Indeed, and remote job boards — all industries and functions.</CardDescription>
             </div>
             {jobs.length > 0 && (
               <div className="flex items-center gap-2">
@@ -1229,7 +1233,7 @@ function RemoteJobsTab() {
             <div className="flex flex-col items-center justify-center py-12 text-center text-slate-400">
               <Globe className="w-12 h-12 mb-3 opacity-30" />
               <p className="text-sm">No remote jobs found yet</p>
-              <p className="text-xs mt-1">Click "Search Remote Jobs" to find remote positions matching your skills.</p>
+              <p className="text-xs mt-1">Click "Search Remote Jobs" to discover remote positions across all industries.</p>
             </div>
           ) : (
             <ScrollArea className="h-[700px] pr-4">

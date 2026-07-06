@@ -8,8 +8,14 @@ import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    // Clean up any stale "Global Remote" profiles left from previous versions.
+    // These belong in the dedicated Remote Jobs tab, not Job Hunter.
+    await db.searchProfile.deleteMany({
+      where: { name: { contains: "Remote", mode: "insensitive" } },
+    });
+
     const profiles = await db.searchProfile.findMany({
       where: { isActive: true },
       include: {
