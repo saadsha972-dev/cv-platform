@@ -131,12 +131,22 @@ function sidebarSection(doc: jsPDF, sec: SidebarSection, y: number, maxY: number
       setClr(doc, C.body);
       doc.setFont("helvetica", "normal");
       doc.text(name, SB_X + 2, y, { maxWidth: SB_W - 20 });
-      // Dots
-      const dotX = SB_R - 13;
-      doc.setFontSize(6.5);
+      // Draw small filled/empty circles using jsPDF drawing (no Unicode)
+      const dotX = SB_R - 14;
+      const dotY = y - 1.2;
+      const dotR = 0.6;
       for (let i = 0; i < 5; i++) {
+        const cx = dotX + i * 2.5;
         setClr(doc, i < rating ? C.gold : C.div);
-        doc.text(i < rating ? "\u25CF" : "\u25CB", dotX + i * 2.5, y);
+        doc.setDrawColor(i < rating ? C.gold[0] : C.div[0], i < rating ? C.gold[1] : C.div[1], i < rating ? C.gold[2] : C.div[2]);
+        if (i < rating) {
+          // Filled circle
+          doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]);
+          doc.circle(cx, dotY, dotR, "F");
+        } else {
+          // Empty circle (stroke only)
+          doc.circle(cx, dotY, dotR, "S");
+        }
       }
       y += 5;
     } else if (Array.isArray(item) && typeof item[1] === "string") {

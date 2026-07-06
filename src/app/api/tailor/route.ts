@@ -221,13 +221,16 @@ export async function POST(req: NextRequest) {
 
     // Detect LLM-not-available error and give user actionable message
     const msg = err.message || "Tailoring failed";
-    const isLlmError = msg.includes("No LLM available") || msg.includes("GROQ_API_KEY") || msg.includes("SDK");
+    const isLlmError = msg.includes("No LLM available") || msg.includes("GROQ_API_KEY") || msg.includes("SDK") || msg.includes("invalid or disabled");
+    const isRateLimit = msg.includes("rate-limited") || msg.includes("429");
 
     return NextResponse.json({
       error: isLlmError
-        ? "AI is not configured. Add GROQ_API_KEY in Vercel Settings → Environment Variables. Get a free key at console.groq.com/keys"
-        : msg,
-      step: isLlmError ? "ai_not_configured" : "unknown",
+        ? "AI tailoring is currently unavailable (API key issue). Your CV was generated using the professional base template. To enable AI tailoring, update GROQ_API_KEY in Vercel Settings → Environment Variables."
+        : isRateLimit
+          ? "AI is temporarily busy. Your CV has been generated using the professional base template. Try again in a few minutes for AI-tailored content."
+          : msg,
+      step: isLlmError ? "ai_not_configured" : isRateLimit ? "rate_limited" : "unknown",
     }, { status: 500 });
   }
 }

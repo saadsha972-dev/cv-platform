@@ -31,10 +31,9 @@ export interface SearchProfileConfig {
 async function serperSearch(query: string, apiKey: string, gl?: string): Promise<any[]> {
   const body: any = {
     q: query,
-    num: 20, // More results per query
+    num: 20,
     hl: "en",
-    // Date recency filter: past MONTH for better coverage
-    tbs: "qdr:m",
+    // NOTE: Do NOT use tbs date filter — it kills results for niche roles
   };
 
   // Set geolocation based on country if possible
@@ -234,37 +233,42 @@ export const searchJobs = async (profile: SearchProfileConfig): Promise<JobSearc
   const primaryKeyword = profile.keywords[0];
   const secondKeyword = profile.keywords[1] || primaryKeyword;
 
-  // Build queries: one set per country for LinkedIn, one general set
+  // Build queries: simple, natural queries that actually return results
   const queries: Array<{ q: string; gl?: string }> = [];
 
-  // For each country, generate targeted queries
   const uniqueCountries = [...new Set(profile.countries.map(c => c.trim()))];
 
-  for (const country of uniqueCountries.slice(0, 5)) {
+  for (const country of uniqueCountries.slice(0, 4)) {
     const geo = getGeo(country);
 
-    // LinkedIn query per country
+    // Simple natural queries — these actually return results from Serper
     queries.push({
-      q: `site:linkedin.com/jobs "${primaryKeyword}" ${country} hiring`,
+      q: `"${primaryKeyword}" jobs ${country} hiring`,
       gl: geo,
     });
 
-    // Indeed or general query per country (alternate between them)
-    if (["usa", "united states", "uk", "united kingdom", "australia", "canada", "germany"].includes(country.toLowerCase())) {
+    // Second keyword query
+    if (secondKeyword !== primaryKeyword) {
       queries.push({
-        q: `"${primaryKeyword}" jobs ${country} -training -course -intern -junior`,
+        q: `"${secondKeyword}" jobs ${country} -training -course`,
+        gl: geo,
+      });
+    }
+
+    // LinkedIn specific (only for countries with good LinkedIn coverage)
+    if (["usa", "united states", "uk", "united kingdom", "uae", "germany", "saudi arabia", "qatar"].includes(country.toLowerCase())) {
+      queries.push({
+        q: `site:linkedin.com/jobs "${primaryKeyword}" ${country} hiring`,
         gl: geo,
       });
     }
   }
 
-  // One broad query with multiple keywords
-  if (secondKeyword !== primaryKeyword) {
-    queries.push({
-      q: `"${primaryKeyword}" OR "${secondKeyword}" jobs hiring -training -course`,
-      gl: "us",
-    });
-  }
+  // One broad global query
+  queries.push({
+    q: `"${primaryKeyword}" jobs hiring -training -course -intern -junior`,
+    gl: "us",
+  });
 
   console.log(`[job-search] Running ${queries.length} queries for ${profile.cvVariantRoleShort}`);
 

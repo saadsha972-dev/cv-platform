@@ -33,18 +33,35 @@ const MODELS = [
 ];
 
 // --- Retry logic ---
-async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 2): Promise<Response> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const res = await fetch(url, options);
-    if (res.status !== 429) return res;
+    try {
+      const res = await fetch(url, options);
+      if (res.status !== 429) return res;
 
-    // Rate limited — wait with exponential backoff
-    const waitMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 8000);
-    console.warn(`[groq] Rate limited (429), retry ${attempt + 1}/${maxRetries} in ${Math.round(waitMs)}ms...`);
-    await new Promise((r) => setTimeout(r, waitMs));
+      // Rate limited — wait with exponential backoff
+      const waitMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 6000);
+      console.warn(`[groq] Rate limited (429), retry ${attempt + 1}/${maxRetries} in ${Math.round(waitMs)}ms...`);
+      await new Promise((r) => setTimeout(r, waitMs));
+    } catch (fetchErr: any) {
+      // Network error — retry once
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      throw fetchErr;
+    }
   }
   // Return the last response even if still 429
   return fetch(url, options);
+}
+
+// --- Is this error a rate limit or auth error? ---
+function isTransientError(status: number, msg: string): boolean {
+  if (status === 429) return true;
+  if (status === 403 && msg.includes("Forbidden")) return false; // Permanent — don't retry
+  if (status === 401) return false; // Permanent
+  return status >= 500; // Server error — retry
 }
 
 // --- Groq client with model fallback ---
@@ -57,6 +74,7 @@ const createClient = (apiKey: string): ZaiLike => {
       ? [requestedModel, ...MODELS.filter((m) => m !== requestedModel)]
       : [...MODELS];
 
+    let lastError = "";
     for (const model of modelsToTry) {
       try {
         const res = await fetchWithRetry(`${GROQ_BASE}/chat/completions`, {
@@ -72,19 +90,29 @@ const createClient = (apiKey: string): ZaiLike => {
           return res.json();
         }
 
-        // If 429 on this model, try next model
+        const errText = await res.text().catch(() => "");
+        lastError = `Groq ${res.status}: ${errText.slice(0, 200)}`;
+
+        // If 429, try next model
         if (res.status === 429) {
           console.warn(`[groq] Model ${model} rate-limited, trying next model...`);
           continue;
         }
 
-        // Other error — throw
-        const errText = await res.text().catch(() => "");
-        throw new Error(`Groq API ${res.status}: ${errText.slice(0, 300)}`);
+        // 401/403 = permanent auth error, don't bother trying other models
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(`Groq API key is invalid or disabled. Please update GROQ_API_KEY in Vercel Settings → Environment Variables.`);
+        }
+
+        // Other server error — try next model
+        console.warn(`[groq] Model ${model} error ${res.status}, trying next...`);
       } catch (err: any) {
+        // If it's a permanent auth error, re-throw immediately
+        if (err.message?.includes("invalid or disabled")) throw err;
         // If it's a rate limit error, try next model
         if (err.message?.includes("429")) {
           console.warn(`[groq] Model ${model} failed with 429, trying next...`);
+          lastError = err.message;
           continue;
         }
         throw err;
@@ -92,7 +120,9 @@ const createClient = (apiKey: string): ZaiLike => {
     }
 
     // All models failed
-    throw new Error("All Groq models rate-limited. Please wait a minute and try again, or upgrade your Groq plan at console.groq.com.");
+    throw new Error(lastError.includes("429")
+      ? "Groq is temporarily rate-limited. Your CV will be generated with the base template — AI tailoring will resume automatically in a few minutes."
+      : lastError || "All Groq models unavailable.");
   };
 
   const invoke = async (name: string, _body: any) => {

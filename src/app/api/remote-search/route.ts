@@ -91,7 +91,7 @@ async function serperSearch(query: string, gl: string, num = 15): Promise<any[]>
     q: query,
     num,
     hl: "en",
-    tbs: "qdr:m",
+    // NOTE: Do NOT use tbs date filter — kills results for niche roles
     gl,
   };
 
