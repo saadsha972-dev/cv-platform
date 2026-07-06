@@ -16,7 +16,7 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { jobPosting, cvVariantSlug, jobTitle, company, customSummary } = body as { jobPosting: string; cvVariantSlug: string; jobTitle?: string; company?: string; customSummary?: string };
+    const { jobPosting, cvVariantSlug, jobTitle, company, customSummary, customSkills, customBullets } = body as { jobPosting: string; cvVariantSlug: string; jobTitle?: string; company?: string; customSummary?: string; customSkills?: string; customBullets?: string };
 
     if (!jobPosting || !cvVariantSlug) {
       return NextResponse.json({ error: "jobPosting and cvVariantSlug are required" }, { status: 400 });
@@ -129,6 +129,52 @@ export async function POST(req: NextRequest) {
         return e;
       }),
     };
+
+    // Apply custom skills override if user edited the skills field
+    if (customSkills?.trim()) {
+      const skillLines = customSkills.split("\n").map(s => s.trim()).filter(Boolean);
+      if (skillLines.length > 0) {
+        const [firstSection, ...restSections] = tailoredCv.sidebarPage1;
+        tailoredCv.sidebarPage1 = [
+          { ...firstSection, title: firstSection.title, items: skillLines },
+          ...restSections,
+        ];
+      }
+    }
+
+    // Apply custom bullets override if user edited the bullets field
+    if (customBullets?.trim()) {
+      const lines = customBullets.split("\n");
+      const overrides: Record<string, string[]> = {};
+      let currentKey = "";
+      let currentBullets: string[] = [];
+      for (const line of lines) {
+        if (line.startsWith("===") && line.endsWith("===")) {
+          if (currentKey && currentBullets.length > 0) overrides[currentKey] = currentBullets;
+          currentKey = line.replace(/===/g, "").trim();
+          currentBullets = [];
+        } else if (line.trim()) {
+          currentBullets.push(line.trim());
+        }
+      }
+      if (currentKey && currentBullets.length > 0) overrides[currentKey] = currentBullets;
+
+      const applyOverrides = (entries: typeof tailoredCv.experiencePage1) =>
+        entries.map((e) => {
+          if (e.lockTailoring) return e;
+          const key1 = `${e.title} @ ${e.company}`;
+          const key2 = `${e.title}`;
+          if (overrides[key1]) return { ...e, bullets: overrides[key1].slice(0, 5) };
+          for (const k of Object.keys(overrides)) {
+            if (k.includes(e.title) || e.title.includes(k.split("@")[0].trim())) {
+              return { ...e, bullets: overrides[k].slice(0, 5) };
+            }
+          }
+          return e;
+        });
+      tailoredCv.experiencePage1 = applyOverrides(tailoredCv.experiencePage1);
+      tailoredCv.experiencePage2 = applyOverrides(tailoredCv.experiencePage2);
+    }
 
     // Replace the first sidebar section on page 1 with the LLM-tailored version
     if (tailored.tailoredSidebarSection1 && tailored.tailoredSidebarSection1.items.length > 0) {

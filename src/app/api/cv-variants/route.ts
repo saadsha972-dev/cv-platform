@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { CV_VARIANTS } from "@/lib/cv-data";
+import { CV_VARIANTS, getCvBySlug } from "@/lib/cv-data";
 
 export const runtime = "nodejs";
 
@@ -27,9 +27,18 @@ async function ensureSeeded() {
   console.log(`[cv-variants] Seeded ${CV_VARIANTS.length} CV variants`);
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await ensureSeeded();
+
+    // If ?slug=xxx is provided, return full CV data for editing
+    const slug = new URL(req.url).searchParams.get("slug");
+    if (slug) {
+      const fullCv = getCvBySlug(slug);
+      if (!fullCv) return NextResponse.json({ error: "Variant not found" }, { status: 404 });
+      return NextResponse.json({ cv: fullCv });
+    }
+
     const variants = await db.cvVariant.findMany({
       where: { isActive: true },
       orderBy: { createdAt: "asc" },

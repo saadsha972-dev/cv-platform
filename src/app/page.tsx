@@ -213,14 +213,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
             <Search className="w-4 h-4 mr-2" />
             Search Jobs
           </Button>
-          <a
-            href="/cv-platform-source.zip"
-            download
-            className="inline-flex items-center justify-center h-10 px-4 rounded-md bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors cursor-pointer"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Download App Source Code (ZIP)
-          </a>
+          
         </CardContent>
       </Card>
 
@@ -293,6 +286,10 @@ function TailorTab() {
   const [selectedSlug, setSelectedSlug] = useState("");
   const [jobPosting, setJobPosting] = useState("");
   const [customSummary, setCustomSummary] = useState("");
+  const [customSkills, setCustomSkills] = useState("");
+  const [customBullets, setCustomBullets] = useState("");
+  const [showEditor, setShowEditor] = useState(false);
+  const [loadingCv, setLoadingCv] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     cvPdfBase64: string;
@@ -302,6 +299,7 @@ function TailorTab() {
     generatedCvId: string;
   } | null>(null);
 
+  // Load variants
   useEffect(() => {
     fetch("/api/cv-variants")
       .then((r) => r.json())
@@ -310,6 +308,39 @@ function TailorTab() {
         if (data.variants?.length) setSelectedSlug(data.variants[0].slug);
       });
   }, []);
+
+  // Load full CV data when variant changes
+  useEffect(() => {
+    if (!selectedSlug) return;
+    setLoadingCv(true);
+    fetch(`/api/cv-variants?slug=${selectedSlug}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.cv) {
+          setCustomSummary(data.cv.summary || "");
+          // Build skills from sidebarPage1 sections
+          const skills: string[] = [];
+          for (const sec of data.cv.sidebarPage1 || []) {
+            for (const item of sec.items || []) {
+              if (typeof item === "string") skills.push(item);
+              else if (Array.isArray(item)) skills.push(item[0]);
+            }
+          }
+          setCustomSkills(skills.join("\n"));
+          // Build all bullets
+          const allExp = [...(data.cv.experiencePage1 || []), ...(data.cv.experiencePage2 || [])];
+          const bulletLines: string[] = [];
+          for (const exp of allExp) {
+            bulletLines.push(`=== ${exp.title} @ ${exp.company} ===`);
+            for (const b of exp.bullets || []) bulletLines.push(b);
+            bulletLines.push("");
+          }
+          setCustomBullets(bulletLines.join("\n"));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingCv(false));
+  }, [selectedSlug]);
 
   const handleTailor = async () => {
     if (!jobPosting.trim() || !selectedSlug) {
@@ -328,7 +359,13 @@ function TailorTab() {
       const res = await fetch("/api/tailor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobPosting, cvVariantSlug: selectedSlug, customSummary: customSummary.trim() || undefined }),
+        body: JSON.stringify({
+          jobPosting,
+          cvVariantSlug: selectedSlug,
+          customSummary: customSummary.trim() || undefined,
+          customSkills: customSkills.trim() || undefined,
+          customBullets: customBullets.trim() || undefined,
+        }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -432,18 +469,29 @@ function TailorTab() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="custom-summary" className="flex items-center gap-2">
+            <Label className="flex items-center gap-2 cursor-pointer" onClick={() => setShowEditor(!showEditor)}>
               <Wand2 className="w-3.5 h-3.5 text-[#8c7853]" />
-              Quick Edit — Custom Summary (optional)
+              Edit Full CV Content
+              <span className="text-xs text-slate-400">({showEditor ? "hide" : "show"})</span>
             </Label>
-            <Textarea
-              id="custom-summary"
-              placeholder="Write your own professional summary here to override the AI-generated one. Leave empty to use AI tailoring..."
-              value={customSummary}
-              onChange={(e) => setCustomSummary(e.target.value)}
-              className="min-h-[80px] text-sm"
-            />
-            <p className="text-xs text-slate-500">Overrides the CV summary with your own words. Leave blank for AI-generated summary.</p>
+            {showEditor && loadingCv && <Skeleton className="h-20 w-full" />}
+            {showEditor && !loadingCv && (
+              <div className="space-y-3 border border-slate-200 rounded-lg p-3 bg-slate-50">
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Professional Summary</Label>
+                  <Textarea value={customSummary} onChange={(e) => setCustomSummary(e.target.value)} className="min-h-[80px] text-sm" placeholder="Your professional summary..." />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Skills & Competencies (one per line)</Label>
+                  <Textarea value={customSkills} onChange={(e) => setCustomSkills(e.target.value)} className="min-h-[100px] text-sm font-mono" placeholder="B2B Enterprise Sales&#10;Key Account Strategy&#10;CRM Systems" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-slate-500">Experience Bullets (use === Job Title @ Company === as separator)</Label>
+                  <Textarea value={customBullets} onChange={(e) => setCustomBullets(e.target.value)} className="min-h-[200px] text-sm font-mono" placeholder={"=== Stock Manager @ Michael Kors ===\nGoverned end-to-end retail store operations...\nManaged inventory using SAP ERP...\n\n=== Process Improvement @ Power International ===\nDirected customer satisfaction research..."} />
+                  <p className="text-xs text-slate-400">Edit any text. Lines starting with === are job title headers (do not change those lines). Bullets under each header belong to that role.</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <Button
