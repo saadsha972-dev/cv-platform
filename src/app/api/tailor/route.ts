@@ -16,7 +16,7 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { jobPosting, cvVariantSlug, jobTitle, company } = body as { jobPosting: string; cvVariantSlug: string; jobTitle?: string; company?: string };
+    const { jobPosting, cvVariantSlug, jobTitle, company, customSummary } = body as { jobPosting: string; cvVariantSlug: string; jobTitle?: string; company?: string; customSummary?: string };
 
     if (!jobPosting || !cvVariantSlug) {
       return NextResponse.json({ error: "jobPosting and cvVariantSlug are required" }, { status: 400 });
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
     // Build a tailored CV variant: clone the base, override summary + bullets + sidebar section 1
     const tailoredCv: CvData = {
       ...baseCv,
-      summary: tailored.tailoredSummary || baseCv.summary,
+      summary: customSummary?.trim() || tailored.tailoredSummary || baseCv.summary,
       experiencePage1: baseCv.experiencePage1.map((e) => {
         if (e.lockTailoring) return e;
         const newBullets = findTailoredBullets(e);

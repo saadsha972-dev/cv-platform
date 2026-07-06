@@ -1,6 +1,6 @@
 /**
  * GET /api/jobs — list jobs with optional filters
- * Query params: ?status=new&minScore=70&limit=200&profileId=xxx
+ * Query params: ?status=new&minScore=70&limit=200&profileId=xxx&maxAgeDays=21
  *
  * DELETE /api/jobs — clear old jobs
  * Query params: ?olderThanDays=30
@@ -18,11 +18,17 @@ export async function GET(req: NextRequest) {
     const minScore = parseInt(searchParams.get("minScore") || "0");
     const limit = parseInt(searchParams.get("limit") || "200");
     const profileId = searchParams.get("profileId");
+    const maxAgeDays = parseInt(searchParams.get("maxAgeDays") || "21");
 
     const where: any = {};
     if (status) where.status = status;
     if (minScore > 0) where.matchScore = { gte: minScore };
     if (profileId) where.searchProfileId = profileId;
+    if (maxAgeDays > 0) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - maxAgeDays);
+      where.createdAt = { gte: cutoff };
+    }
 
     const jobs = await db.jobPosting.findMany({
       where,
@@ -38,7 +44,7 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ jobs });
+    return NextResponse.json({ jobs, filter: { maxAgeDays, active: maxAgeDays > 0 } });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

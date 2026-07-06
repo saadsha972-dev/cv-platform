@@ -292,6 +292,7 @@ function TailorTab() {
   const [variants, setVariants] = useState<CvVariant[]>([]);
   const [selectedSlug, setSelectedSlug] = useState("");
   const [jobPosting, setJobPosting] = useState("");
+  const [customSummary, setCustomSummary] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     cvPdfBase64: string;
@@ -327,7 +328,7 @@ function TailorTab() {
       const res = await fetch("/api/tailor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobPosting, cvVariantSlug: selectedSlug }),
+        body: JSON.stringify({ jobPosting, cvVariantSlug: selectedSlug, customSummary: customSummary.trim() || undefined }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -428,6 +429,21 @@ function TailorTab() {
               className="min-h-[300px] font-mono text-xs"
             />
             <p className="text-xs text-slate-500">{jobPosting.length} characters</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="custom-summary" className="flex items-center gap-2">
+              <Wand2 className="w-3.5 h-3.5 text-[#8c7853]" />
+              Quick Edit — Custom Summary (optional)
+            </Label>
+            <Textarea
+              id="custom-summary"
+              placeholder="Write your own professional summary here to override the AI-generated one. Leave empty to use AI tailoring..."
+              value={customSummary}
+              onChange={(e) => setCustomSummary(e.target.value)}
+              className="min-h-[80px] text-sm"
+            />
+            <p className="text-xs text-slate-500">Overrides the CV summary with your own words. Leave blank for AI-generated summary.</p>
           </div>
 
           <Button
