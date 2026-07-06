@@ -143,6 +143,7 @@ async function searchJobsForProfile(keywords: string[], countries: string[], exc
   const exclude = excludeKeywords.map(k => k.toLowerCase());
 
   // Execute all queries in parallel (max 6 queries = well within rate limit)
+  const queryErrors: string[] = [];
   const results = await Promise.allSettled(
     queries.map(async ({ q, gl }) => {
       try {
@@ -162,7 +163,9 @@ async function searchJobsForProfile(keywords: string[], countries: string[], exc
         console.log(`[search] "${q.slice(0, 50)}..." -> ${jobs.length} jobs`);
         return jobs;
       } catch (err: any) {
-        console.error(`[search] Query failed: ${err.message}`);
+        const errMsg = `${q.slice(0, 40)}: ${err.message}`;
+        console.error(`[search] Query failed: ${errMsg}`);
+        queryErrors.push(errMsg);
         return [] as RawJob[];
       }
     })
@@ -172,8 +175,8 @@ async function searchJobsForProfile(keywords: string[], countries: string[], exc
     if (r.status === "fulfilled") allJobs.push(...r.value);
   }
 
-  console.log(`[search] Total: ${allJobs.length} jobs for ${primaryKw}`);
-  return allJobs;
+  console.log(`[search] Total: ${allJobs.length} jobs for ${primaryKw}, errors: ${queryErrors.length}`);
+  return { jobs: allJobs, queryErrors, queryCount: queries.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -231,8 +234,17 @@ export async function POST(req: NextRequest) {
         ? [...cv.sidebarPage1, ...cv.sidebarPage2].flatMap((s) => s.items.map((i) => (Array.isArray(i) ? i[0] : i)))
         : [];
 
-      const jobs = await searchJobsForProfile(keywords, countries, excludeKw);
-      console.log(`[search-run] ${profile.name}: ${jobs.length} raw jobs (${Date.now() - t0}ms)`);
+      const searchResult = await searchJobsForProfile(keywords, countries, excludeKw);
+      const jobs = searchResult.jobs;
+      console.log(`[search-run] ${profile.name}: ${jobs.length} raw jobs (${Date.now() - t0}ms) (${searchResult.queryCount} queries, ${searchResult.queryErrors.length} errors)`);
+
+      if (debug) {
+        debugProfiles[debugProfiles.length - 1]._search = {
+          queryCount: searchResult.queryCount,
+          errorCount: searchResult.queryErrors.length,
+          errors: searchResult.queryErrors.slice(0, 3),
+        };
+      }
 
       if (jobs.length === 0) {
         results.push({ profile: profile.name, found: 0, saved: 0 });
