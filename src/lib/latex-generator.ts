@@ -172,37 +172,47 @@ function sidebarSection(doc: jsPDF, sec: SidebarSection, y: number, maxY: number
     } else if (Array.isArray(item) && typeof item[1] === "string") {
       // Credential: [name, description]
       const [name, desc] = item as [string, string];
-      if (y > maxY - 6) break;
+      if (y > maxY - 8) break;
       doc.setFontSize(7);
       setClr(doc, C.gold);
       doc.text(BULLET, SB_X + 1, y);
       doc.setFontSize(F.certName);
       setClr(doc, C.body);
       doc.setFont("helvetica", "bold");
-      const truncName = fitText(doc, name, SB_W - 8, 1);
-      doc.text(truncName, SB_X + 4, y, { maxWidth: SB_W - 8 });
-      y += 4;
+      const nameLines = doc.splitTextToSize(name, SB_W - 8);
+      for (const nl of nameLines) {
+        if (y > maxY - 4) break;
+        doc.text(nl, SB_X + 4, y);
+        y += 4;
+      }
       if (desc && y < maxY - 5) {
         doc.setFontSize(F.small);
         setClr(doc, C.gray);
         doc.setFont("helvetica", "normal");
-        const truncDesc = fitText(doc, desc, SB_W - 10, 1);
-        doc.text(truncDesc, SB_X + 5, y, { maxWidth: SB_W - 10 });
-        y += 4;
+        const descLines = doc.splitTextToSize(desc, SB_W - 10);
+        for (const dl of descLines) {
+          if (y > maxY - 4) break;
+          doc.text(dl, SB_X + 5, y);
+          y += 4;
+        }
       }
     } else {
-      // Plain bullet
+      // Plain bullet — allow wrapping up to 2 lines
       const text = String(item);
-      if (y > maxY - 5) break;
+      if (y > maxY - 6) break;
       doc.setFontSize(7);
       setClr(doc, C.gold);
       doc.text(BULLET, SB_X + 1, y);
       doc.setFontSize(8.5);
       setClr(doc, C.body);
       doc.setFont("helvetica", "normal");
-      const truncText = fitText(doc, text, SB_W - 8, 1);
-      doc.text(truncText, SB_X + 4, y, { maxWidth: SB_W - 8 });
-      y += 4;
+      const textLines = doc.splitTextToSize(text, SB_W - 8);
+      const maxLines = Math.min(textLines.length, 2);
+      for (let ti = 0; ti < maxLines; ti++) {
+        if (y > maxY - 4) break;
+        doc.text(textLines[ti], SB_X + 4, y);
+        y += 4;
+      }
     }
   }
   return y + 3;
