@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     // --- STEP 2: Tailor CV content with LLM ---
     console.log(`[tailor] Step 2/4: Tailoring CV content with LLM...`);
     const tailored = await tailorCvForJob(baseCv, analysis);
-    console.log(`[tailor] Step 2 done. ${Object.keys(tailored.tailoredBullets || {}).length} bullet sets, ${tailored.sidebarSoftSkills?.length || 0} soft skills`);
+    console.log(`[tailor] Step 2 done. ${Object.keys(tailored.tailoredBullets || {}).length} bullet sets, ${tailored.tailoredSidebarSection1?.items?.length || 0} sidebar items, ${tailored.tailoredCoverLetter ? 'cover letter' : 'no cover letter'}`);
 
     // Build a lookup that matches bullets by job title (handles both
     // "Title" and "Title @ Company" key formats returned by the LLM)
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       return null;
     };
 
-    // Build a tailored CV variant: clone the base, override summary + bullets
+    // Build a tailored CV variant: clone the base, override summary + bullets + sidebar section 1
     const tailoredCv: CvData = {
       ...baseCv,
       summary: tailored.tailoredSummary || baseCv.summary,
@@ -90,13 +90,16 @@ export async function POST(req: NextRequest) {
       }),
     };
 
-    if (tailored.sidebarSoftSkills && tailored.sidebarSoftSkills.length > 0) {
-      tailoredCv.sidebarPage2 = [
-        ...tailoredCv.sidebarPage2,
+    // Replace the first sidebar section on page 1 with the LLM-tailored version
+    if (tailored.tailoredSidebarSection1 && tailored.tailoredSidebarSection1.items.length > 0) {
+      const [firstSection, ...restSections] = tailoredCv.sidebarPage1;
+      tailoredCv.sidebarPage1 = [
         {
-          title: "KEY COMPETENCIES",
-          items: tailored.sidebarSoftSkills.slice(0, 6),
+          ...firstSection,
+          title: tailored.tailoredSidebarSection1.title,
+          items: tailored.tailoredSidebarSection1.items,
         },
+        ...restSections,
       ];
     }
 
@@ -109,6 +112,7 @@ export async function POST(req: NextRequest) {
         company: analysis.company,
         extraKeywords: tailored.matchedKeywords,
         idPrefix: `tailor_${Date.now()}`,
+        coverLetterText: tailored.tailoredCoverLetter || undefined,
       });
       console.log(`[tailor] Step 3 done. CV PDF: ${result.cvPdfPath}, Cover: ${result.coverLetterPdfPath}`);
     } catch (pdfErr: any) {

@@ -47,12 +47,12 @@ const MR = 25;    // ~1 inch right margin
 const CW = PW - ML - MR; // 160
 
 const SB_W = 52;     // sidebar ~33% of content
-const GAP = 6;       // gap between columns (whitespace separator)
-const MAIN_W = CW - SB_W - GAP; // 102
+const GAP = 8;       // gap between columns (whitespace separator)
+const MAIN_W = CW - SB_W - GAP; // 100
 
 const SB_X = ML;                    // 25
 const SB_R = ML + SB_W;            // 77
-const MAIN_X = ML + SB_W + GAP;    // 83
+const MAIN_X = ML + SB_W + GAP;    // 85
 const MAIN_R = ML + CW;            // 185
 
 // Vertical layout
@@ -73,24 +73,24 @@ const CLR = {
   p2Rule: [204, 204, 204] as [number, number, number],   // #CCCCCC — P2 section underlines
 };
 
-// Font sizes (pt) — matched to sample
+// Font sizes (pt) — simplified consistent set
 const FS = {
-  name: 22,          // bold navy centered
-  title: 12,         // regular navy centered
-  contact: 9,        // gray centered
-  sectionHdr: 12,    // bold uppercase navy (main column)
-  sbSectionHdr: 10,  // bold uppercase navy (sidebar)
-  body: 9.5,         // regular dark gray
-  bullet: 9,         // for bullet text
-  small: 8.5,        // for dates, locations, sub-items
-  tiny: 8,           // for P2 header, timeline companies
-  timelineYear: 9,   // navy for timeline years
-  certBold: 9.5,     // bold for credential names
-  skillName: 9.5,    // for skill proficiency names
+  name: 20,          // bold navy centered
+  title: 11,         // regular navy centered
+  contact: 8.5,      // gray centered
+  sectionHdr: 11,    // bold uppercase navy (main column)
+  sbSectionHdr: 9.5, // bold uppercase navy (sidebar)
+  body: 9,           // regular dark gray
+  bullet: 8.5,       // for bullet text
+  small: 7.5,        // for dates, locations, sub-items
+  tiny: 7.5,         // for P2 header, timeline companies
+  timelineYear: 8.5, // navy for timeline years
+  certBold: 9,       // bold for credential names
+  skillName: 9,      // for skill proficiency names
 };
 
-// Gold bullet character
-const BULLET = "\u25CF"; // ● (U+25CF BLACK CIRCLE)
+// Standard bullet character
+const BULLET = "\u2022"; // • (U+2022 BULLET)
 
 // ---------------------------------------------------------------------------
 // LOW-LEVEL HELPERS
@@ -161,35 +161,35 @@ function buildSidebarSection(doc: jsPDF, section: SidebarSection, startY: number
       const [name, desc] = item as [string, string];
       // Line 1: Gold bullet + bold cert name
       setColor(doc, CLR.bronze);
-      doc.setFontSize(5);
+      doc.setFontSize(6.5);
       doc.text(BULLET, SB_X, y);
       doc.setFontSize(FS.certBold);
       setColor(doc, CLR.body);
       doc.setFont("helvetica", "bold");
       doc.text(name, SB_X + 3, y, { maxWidth: SB_W - 6 });
-      y += 3.8;
+      y += 4;
       // Line 2: Indented sub-bullet + description
       if (desc) {
         setColor(doc, CLR.bronze);
-        doc.setFontSize(4.5);
+        doc.setFontSize(6);
         doc.text(BULLET, SB_X + 3, y);
         doc.setFontSize(FS.small);
         setColor(doc, CLR.midGray);
         doc.setFont("helvetica", "normal");
         doc.text(desc, SB_X + 6, y, { maxWidth: SB_W - 10 });
-        y += 3.8;
+        y += 4;
       }
     } else {
-      // Plain string bullet with gold ●
+      // Plain string bullet with standard •
       const text = String(item);
       setColor(doc, CLR.bronze);
-      doc.setFontSize(5);
+      doc.setFontSize(6.5);
       doc.text(BULLET, SB_X, y);
       doc.setFontSize(FS.body);
       setColor(doc, CLR.body);
       doc.setFont("helvetica", "normal");
       doc.text(text, SB_X + 3, y, { maxWidth: SB_W - 6 });
-      y += 4.2;
+      y += 4.5;
     }
   }
   return y + 2;
@@ -235,7 +235,7 @@ function buildExperienceEntry(
     if (maxY && y > maxY - 4) break;
     // Gold bullet
     setColor(doc, CLR.bronze);
-    doc.setFontSize(4.5);
+    doc.setFontSize(6);
     doc.text(BULLET, x + 1, y);
     // Bullet text
     setColor(doc, CLR.body);
@@ -303,13 +303,13 @@ function buildCvPage1(doc: jsPDF, cv: CvData): void {
   mainY = mainSectionHeader(doc, "Career Timeline", mainY, false);
   const years = ["2008", "2014", "2015", "2017", "2018", "2020", "2024"];
   const companies = ["Etisalat/PTCL", "Independent", "Guardian ICS", "DQS-Pak", "Mace", "Power Intl.", "Michael Kors"];
-  const colW = MAIN_W / 7;
+  const colW = (MAIN_W - 6) / 7;
   // Years ABOVE the line (navy bold)
   doc.setFontSize(FS.timelineYear);
   setColor(doc, CLR.navy);
   doc.setFont("helvetica", "bold");
   for (let i = 0; i < years.length; i++) {
-    doc.text(years[i], MAIN_X + colW * i + colW / 2, mainY, { align: "center" });
+    doc.text(years[i], MAIN_X + 3 + colW * i + colW / 2, mainY, { align: "center" });
   }
   mainY += 3;
   // Gold horizontal line
@@ -320,7 +320,7 @@ function buildCvPage1(doc: jsPDF, cv: CvData): void {
   setColor(doc, CLR.body);
   doc.setFont("helvetica", "normal");
   for (let i = 0; i < companies.length; i++) {
-    doc.text(companies[i], MAIN_X + colW * i + colW / 2, mainY, { align: "center" });
+    doc.text(companies[i], MAIN_X + 3 + colW * i + colW / 2, mainY, { align: "center" });
   }
   mainY += 5;
 
@@ -372,7 +372,7 @@ function buildCvPage2(doc: jsPDF, cv: CvData): void {
       if (mainY > pageBottom - 10) break;
       // Gold bullet + company, place, dates
       setColor(doc, CLR.bronze);
-      doc.setFontSize(4.5);
+      doc.setFontSize(6);
       doc.text(BULLET, MAIN_X, mainY);
       doc.setFontSize(FS.bullet);
       setColor(doc, CLR.body);
@@ -419,7 +419,8 @@ function buildCoverLetterPdf(
   cv: CvData,
   jobTitle: string,
   company?: string,
-  extraKeywords?: string[]
+  extraKeywords?: string[],
+  coverLetterText?: string
 ): Buffer {
   const doc = new jsPDF({ compress: true, unit: "mm", format: "a4" });
 
@@ -488,27 +489,36 @@ function buildCoverLetterPdf(
     y += 3;
   };
 
-  // --- PARAGRAPH 1: Opening ---
+  // --- BODY PARAGRAPHS ---
   setColor(doc, CLR.body);
   doc.setFontSize(10);
-  const p1 = `I am writing to express my strong interest in the ${jobTitle} position${companyName ? ` at ${companyName}` : ""}. With over 20 years of progressive international experience across Germany, the GCC, the UK, and Pakistan, and a proven track record of delivering measurable results in roles demanding both technical command and commercial acumen, I am confident that my background aligns closely with the requirements of this opportunity.`;
-  writePara(p1);
 
-  // --- PARAGRAPH 2: Core expertise ---
-  const summarySlice = cv.summary.split(". ").slice(0, 2).join(". ").trim();
-  const p2 = `Throughout my career as a ${cv.roleShort}, I have consistently delivered outcomes that matter: ${summarySlice}. My work has paired technical rigor with the ability to build trust across industries, cultures, and senior stakeholders, translating complex requirements into practical systems that hold up to scrutiny while genuinely improving business performance.`;
-  writePara(p2);
+  if (coverLetterText) {
+    // Use custom cover letter text: split by double-newline into paragraphs
+    const paras = coverLetterText.split(/\n\n+/).filter(p => p.trim());
+    for (const para of paras) {
+      writePara(para.trim());
+    }
+  } else {
+    // --- PARAGRAPH 1: Opening ---
+    const p1 = `I am writing to express my strong interest in the ${jobTitle} position${companyName ? ` at ${companyName}` : ""}. With over 20 years of progressive international experience across Germany, the GCC, the UK, and Pakistan, and a proven track record of delivering measurable results in roles demanding both technical command and commercial acumen, I am confident that my background aligns closely with the requirements of this opportunity.`;
+    writePara(p1);
 
-  // --- PARAGRAPH 3: Role-specific alignment ---
-  const kw = extraKeywords && extraKeywords.length > 0 ? extraKeywords.slice(0, 4).join(", ") : "";
-  const p3 = kw
-    ? `What draws me specifically to this opportunity is the chance to bring my expertise in ${kw} to your team${companyName ? `, and to contribute to ${companyName}'s continued growth and success` : ""}. I am equally comfortable leading from the front in the field or advising from the boardroom, and I am open to international relocation should the role require it.`
-    : `What draws me to this opportunity is the alignment between my career achievements and the demands of this role. I am equally comfortable leading from the front in the field or advising from the boardroom, and I am open to international relocation should the role require it.`;
-  writePara(p3);
+    // --- PARAGRAPH 2: Core expertise ---
+    const p2 = `Throughout my career as a ${cv.roleShort}, I have consistently delivered outcomes that matter. My work has paired technical rigor with the ability to build trust across industries, cultures, and senior stakeholders, translating complex requirements into practical systems that hold up to scrutiny while genuinely improving business performance.`;
+    writePara(p2);
 
-  // --- CLOSING ---
-  const p4 = `I would welcome the opportunity to discuss how my experience and qualifications can add value to your team. I am available for an interview at your earliest convenience and can be reached at +92 332 4862219 or marketbrain@gmail.com. Thank you for considering my application.`;
-  writePara(p4);
+    // --- PARAGRAPH 3: Role-specific alignment ---
+    const kw = extraKeywords && extraKeywords.length > 0 ? extraKeywords.slice(0, 4).join(", ") : "";
+    const p3 = kw
+      ? `What draws me specifically to this opportunity is the chance to bring my expertise in ${kw} to your team${companyName ? `, and to contribute to ${companyName}'s continued growth and success` : ""}. I am equally comfortable leading from the front in the field or advising from the boardroom, and I am open to international relocation should the role require it.`
+      : `What draws me to this opportunity is the alignment between my career achievements and the demands of this role. I am equally comfortable leading from the front in the field or advising from the boardroom, and I am open to international relocation should the role require it.`;
+    writePara(p3);
+
+    // --- CLOSING ---
+    const p4 = `I would welcome the opportunity to discuss how my experience and qualifications can add value to your team. I am available for an interview at your earliest convenience and can be reached at +92 332 4862219 or marketbrain@gmail.com. Thank you for considering my application.`;
+    writePara(p4);
+  }
 
   // Signature block
   y += 4;
@@ -534,7 +544,7 @@ export interface GenerateCvResult {
 
 export const generateCvPdfs = async (
   cv: CvData,
-  options?: { jobTitle?: string; company?: string; extraKeywords?: string[]; idPrefix?: string }
+  options?: { jobTitle?: string; company?: string; extraKeywords?: string[]; idPrefix?: string; coverLetterText?: string }
 ): Promise<GenerateCvResult> => {
   const id = options?.idPrefix || `cv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const cvPdfPath = join(PDF_OUT_DIR, `${id}_cv.pdf`);
@@ -550,7 +560,8 @@ export const generateCvPdfs = async (
     cv,
     options?.jobTitle || cv.roleTitle,
     options?.company,
-    options?.extraKeywords
+    options?.extraKeywords,
+    options?.coverLetterText
   );
   writeFileSync(clPdfPath, clBuffer);
   console.log(`[pdf] Cover letter PDF saved: ${clPdfPath} (${clBuffer.length} bytes)`);

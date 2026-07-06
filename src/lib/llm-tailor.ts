@@ -87,7 +87,8 @@ export interface TailoredCvContent {
   tailoredBullets: Record<string, string[]>; // keyed by job title from timeline
   matchedKeywords: string[]; // keywords from posting that match the CV
   missingKeywords: string[]; // keywords from posting NOT in the CV
-  sidebarSoftSkills: string[]; // soft skills/keywords to add to the sidebar
+  tailoredSidebarSection1: { title: string; items: string[] };
+  tailoredCoverLetter: string;
 }
 
 export const tailorCvForJob = async (
@@ -110,6 +111,12 @@ export const tailorCvForJob = async (
     ? `\n\nNOTE: The following entries are LOCKED and must NOT be tailored — keep their original bullets unchanged:\n${lockedEntries.map((e) => `- ${e.title} @ ${e.company}`).join("\n")}`
     : "";
 
+  // Gather the current sidebar section 1 for context
+  const currentSidebarSection1 = cv.sidebarPage1[0];
+  const currentSidebarItems = currentSidebarSection1
+    ? currentSidebarSection1.items.map((i) => (Array.isArray(i) ? i[0] : String(i))).join(", ")
+    : "(none)";
+
   const prompt = `You are an expert executive CV writer. Tailor the candidate's CV to maximize relevance to a specific job posting. You must be AGGRESSIVE in reordering and rephrasing bullets — but NEVER fabricate new experience, achievements, or skills that aren't in the original.
 
 CANDIDATE'S CV SUMMARY (original):
@@ -117,6 +124,9 @@ ${cv.summary}
 
 CANDIDATE'S EXPERIENCE BULLETS (original — only these can be tailored):
 ${cvBullets}${lockedNote}
+
+CANDIDATE'S CURRENT SIDEBAR SECTION 1 ("${currentSidebarSection1?.title || "Core Competencies"}"):
+${currentSidebarItems}
 
 TARGET JOB:
 - Title: ${analysis.jobTitle}
@@ -137,19 +147,9 @@ YOUR TASKS:
    
    a) REORDER: Put the most relevant bullet FIRST.
    
-   b) REPHRASE: Rewrite each bullet to emphasize the aspect that aligns with the job. Use EXACT keyword phrases from the job posting naturally. For example, if the job mentions "internal audits," use that exact phrase — don't write "internal compliance audits." If the job mentions "documentation management," weave that exact phrase in where the candidate has relevant experience.
+   b) REPHRASE: Rewrite each bullet to emphasize the aspect that aligns with the job. Use EXACT keyword phrases from the job posting's requirements and responsibilities sections naturally. Weave the posting's own terminology into the candidate's genuine experience.
    
-   c) KEYWORD INTEGRATION CHECKLIST — make sure these exact phrases appear somewhere in the tailored bullets where the candidate has genuine evidence:
-      - "internal audits" (not "internal compliance audits")
-      - "supplier audits"
-      - "documentation management"
-      - "compliance management"
-      - "risk management"
-      - "continuous improvement"
-      - "stakeholder engagement"
-      - "regulatory requirements"
-      - "corrective actions"
-      - "certification processes"
+   c) KEYWORD INTEGRATION: Identify the 8-10 most important exact keyword phrases from the job posting's requirements and responsibilities. Make sure these exact phrases appear somewhere in the tailored bullets where the candidate has genuine evidence. Prioritize phrases that the posting uses repeatedly or emphasizes.
    
    d) DEMOTE IRRELEVANT CONTENT: If a role has no relevant experience for this job, keep the bullets factual but brief.
    
@@ -157,11 +157,23 @@ YOUR TASKS:
    
    f) NEVER FABRICATE: Do not invent new achievements, metrics, or skills. Only rephrase, reorder, and emphasize what's already there.
 
-3. SOFT SKILLS FOR SIDEBAR: Identify soft skills and competencies from the job posting that the candidate can legitimately claim (based on their experience). Return these as sidebarSoftSkills — they'll be added to a "KEY COMPETENCIES" section in the sidebar. Examples: "Analytical Skills", "Problem-Solving", "Communication Skills", "Stakeholder Management", "Training & Development", "Regulatory Compliance".
+3. REWRITE SIDEBAR SECTION 1: Completely rewrite the first sidebar section (currently titled "${currentSidebarSection1?.title || "Core Competencies"}"). Select 8-10 skills/competencies that are:
+   - The MOST relevant to this specific job posting (drawn from the posting's requirements and responsibilities)
+   - Genuinely supported by the candidate's experience (do NOT list skills the candidate has no evidence for)
+   - Written as concise, professional terms (e.g., "Internal Audits", "ISO 9001", "Risk Assessment", "Stakeholder Management")
+   - Ordered by relevance to the job posting (most relevant first)
+   Choose a title that best fits the job context (e.g., "Core Competencies", "Key Skills", "Technical Competencies", "Professional Expertise").
 
-4. IDENTIFY MATCHED KEYWORDS: List which keywords from the job posting the candidate ALREADY has strong evidence for in the CV (after tailoring).
+4. WRITE A TAILORED COVER LETTER (3-4 paragraphs, ~300-400 words total):
+   - Paragraph 1: Express specific interest in THIS role at THIS company. Mention the job title and company name. Show you understand what the role involves by referencing 1-2 specific requirements from the posting.
+   - Paragraph 2: Reference 2-3 specific, concrete achievements from the candidate's experience that are MOST relevant to this particular role. Be specific — mention actual results, scope, or impact. Do NOT simply copy the CV summary. Write original prose that connects the candidate's track record to the job's needs.
+   - Paragraph 3: Explain why THIS company/role is appealing and how the candidate's approach would add value. Reference specific aspects of the job posting (methods, tools, scale, industry context).
+   - Closing: Professional sign-off. The letter should fill roughly 75-80% of a standard letter page.
+   Write the cover letter as plain text with paragraph breaks (use \n\n between paragraphs). Do NOT include the date, addressee block, subject line, salutation, or signature — those are added by the template.
 
-5. IDENTIFY MISSING KEYWORDS: List which keywords from the job posting are NOT evidenced in the CV — be honest.
+5. IDENTIFY MATCHED KEYWORDS: List which keywords from the job posting the candidate ALREADY has strong evidence for in the CV (after tailoring).
+
+6. IDENTIFY MISSING KEYWORDS: List which keywords from the job posting are NOT evidenced in the CV — be honest.
 
 Return ONLY valid JSON in this schema:
 {
@@ -171,16 +183,20 @@ Return ONLY valid JSON in this schema:
   },
   "matchedKeywords": ["keyword1", "keyword2", ...],
   "missingKeywords": ["keyword1", "keyword2", ...],
-  "sidebarSoftSkills": ["Analytical Skills", "Problem-Solving", "Communication Skills", ...]
+  "tailoredSidebarSection1": {
+    "title": "Core Competencies",
+    "items": ["Skill 1", "Skill 2", "Skill 3", "Skill 4", "Skill 5", "Skill 6", "Skill 7", "Skill 8"]
+  },
+  "tailoredCoverLetter": "Paragraph 1 text.\n\nParagraph 2 text referencing specific achievements.\n\nParagraph 3 text specific to the role and company.\n\nClosing paragraph."
 }`;
 
   const response = await (await getZai()).chat.completions.create({
     messages: [
-      { role: "system", content: "You are an expert executive CV writer. You NEVER fabricate experience — you only rephrase, reorder, and emphasize existing content. You are AGGRESSIVE in making bullets relevant to the target job. You return valid JSON only." },
+      { role: "system", content: "You are an expert executive CV writer and cover letter specialist. You NEVER fabricate experience — you only rephrase, reorder, and emphasize existing content. You are AGGRESSIVE in making bullets relevant to the target job. You write compelling, specific cover letters that reference concrete achievements. You return valid JSON only." },
       { role: "user", content: prompt },
     ],
     temperature: 0.5,
-    max_tokens: 3500,
+    max_tokens: 5000,
   });
 
   const content = response.choices?.[0]?.message?.content?.trim() || "{}";
@@ -193,7 +209,8 @@ Return ONLY valid JSON in this schema:
       tailoredBullets: parsed.tailoredBullets || {},
       matchedKeywords: parsed.matchedKeywords || [],
       missingKeywords: parsed.missingKeywords || [],
-      sidebarSoftSkills: parsed.sidebarSoftSkills || [],
+      tailoredSidebarSection1: parsed.tailoredSidebarSection1 || { title: currentSidebarSection1?.title || "Core Competencies", items: currentSidebarSection1?.items.map((i) => (Array.isArray(i) ? i[0] : String(i))) || [] },
+      tailoredCoverLetter: parsed.tailoredCoverLetter || "",
     };
   } catch {
     return {
@@ -201,7 +218,8 @@ Return ONLY valid JSON in this schema:
       tailoredBullets: {},
       matchedKeywords: analysis.keywords.slice(0, 5),
       missingKeywords: [],
-      sidebarSoftSkills: [],
+      tailoredSidebarSection1: { title: currentSidebarSection1?.title || "Core Competencies", items: currentSidebarSection1?.items.map((i) => (Array.isArray(i) ? i[0] : String(i))) || [] },
+      tailoredCoverLetter: "",
     };
   }
 };
