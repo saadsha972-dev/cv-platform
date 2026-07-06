@@ -63,14 +63,14 @@ const COUNTRY_QUERIES: Record<string, { gl: string; queries: string[] }> = {
   },
 };
 
-// Global queries — target actual remote job boards
+// Global queries — simple queries (NO site: — blocked on Serper free tier)
 const GLOBAL_QUERIES = [
-  "site:linkedin.com/jobs remote manager hiring",
-  "site:indeed.com remote manager jobs hiring",
-  "site:weworkremotely.com manager",
-  "site:remoteok.com senior",
-  "remote jobs hiring manager director",
-  "work from home jobs manager senior specialist",
+  "remote manager jobs hiring",
+  "remote director jobs hiring",
+  "work from home manager jobs",
+  "remote senior specialist jobs",
+  "remote team lead positions hiring",
+  "work from home jobs manager director",
 ];
 
 interface RemoteJob {

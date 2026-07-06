@@ -124,16 +124,15 @@ async function searchJobsForProfile(keywords: string[], countries: string[], exc
 
   for (const country of countriesToSearch) {
     const gl = COUNTRY_GEO[country.toLowerCase().trim()] || "us";
-    // Query 1: primary keyword + country (no site restriction, no tbs)
-    queries.push({ q: `"${primaryKw}" jobs ${country} hiring`, gl });
-    // Query 2: LinkedIn individual postings
-    queries.push({ q: `site:linkedin.com/jobs/view "${primaryKw}" ${country}`, gl });
+    // Simple natural queries — NO quotes, NO site: (blocked on Serper free tier)
+    queries.push({ q: `${primaryKw} jobs ${country} hiring`, gl });
+    queries.push({ q: `${primaryKw} jobs ${country} -training -course`, gl });
   }
 
   // Optional: second keyword for first country
   if (secondKw && secondKw !== primaryKw) {
     const gl = COUNTRY_GEO[countriesToSearch[0].toLowerCase().trim()] || "us";
-    queries.push({ q: `"${secondKw}" jobs ${countriesToSearch[0]} hiring`, gl });
+    queries.push({ q: `${secondKw} jobs ${countriesToSearch[0]} hiring`, gl });
   }
 
   console.log(`[search] Queries for ${primaryKw}: ${JSON.stringify(queries)}`);
