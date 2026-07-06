@@ -139,7 +139,11 @@ let _instance: ZaiLike | null = null;
 export const createZai = async (): Promise<ZaiLike> => {
   if (_instance) return _instance;
 
-  const apiKey = process.env.GROQ_API_KEY || "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";
+  const apiKey = process.env.GROQ_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY not set. Add it in Vercel \u2192 Settings \u2192 Environment Variables.");
+  }
 
   _instance = createClient(apiKey);
   return _instance;
