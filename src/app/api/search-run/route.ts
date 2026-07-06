@@ -136,6 +136,8 @@ async function searchJobsForProfile(keywords: string[], countries: string[], exc
     queries.push({ q: `"${secondKw}" jobs ${countriesToSearch[0]} hiring`, gl });
   }
 
+  console.log(`[search] Queries for ${primaryKw}: ${JSON.stringify(queries)}`);
+
   const allJobs: RawJob[] = [];
   const seenUrls = new Set<string>();
   const exclude = excludeKeywords.map(k => k.toLowerCase());
@@ -194,9 +196,10 @@ function scoreByKeywords(cvSkills: string[], jobTitle: string, jobDesc: string, 
 // MAIN HANDLER
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
+  const t0 = Date.now();
   try {
     const body = await req.json().catch(() => ({}));
-    const { profileId } = body as { profileId?: string };
+    const { profileId, debug } = body as { profileId?: string; debug?: boolean };
 
     const where = profileId ? { id: profileId, isActive: true } : { isActive: true };
     const profiles = await db.searchProfile.findMany({
@@ -224,7 +227,7 @@ export async function POST(req: NextRequest) {
         : [];
 
       const jobs = await searchJobsForProfile(keywords, countries, excludeKw);
-      console.log(`[search-run] ${profile.name}: ${jobs.length} raw jobs`);
+      console.log(`[search-run] ${profile.name}: ${jobs.length} raw jobs (${Date.now() - t0}ms)`);
 
       if (jobs.length === 0) {
         results.push({ profile: profile.name, found: 0, saved: 0 });
@@ -276,15 +279,16 @@ export async function POST(req: NextRequest) {
 
     const totalSaved = results.reduce((sum, r) => sum + r.saved, 0);
 
-    if (totalSaved === 0) {
-      return NextResponse.json({
-        success: false,
-        error: "No new jobs found. Try again later or adjust your search profile keywords.",
-        results,
-      });
+    const resp: any = totalSaved === 0
+      ? { success: false, error: "No new jobs found. Try again later or adjust your search profile keywords.", results }
+      : { success: true, results };
+
+    if (debug) {
+      resp._timing = `${Date.now() - t0}ms`;
+      resp._profiles = profiles.length;
     }
 
-    return NextResponse.json({ success: true, results });
+    return NextResponse.json(resp);
   } catch (err: any) {
     console.error("[search-run] Error:", err);
     const msg = err.message || "Search failed";
