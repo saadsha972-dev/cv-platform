@@ -143,9 +143,9 @@ Return JSON in this exact schema:
     (cleaned) => {
       try {
         const parsed = JSON.parse(cleaned) as JobAnalysis;
-        // Validate: must have jobTitle and keywords array
+        // Validate: must have jobTitle and NON-EMPTY keywords array
         if (!parsed.jobTitle || typeof parsed.jobTitle !== "string") return null;
-        if (!Array.isArray(parsed.keywords)) return null;
+        if (!Array.isArray(parsed.keywords) || parsed.keywords.length === 0) return null;
         // Clean up keywords
         if (parsed.keywords) {
           parsed.keywords = [...new Set(parsed.keywords.map((k: string) => k.toLowerCase().trim()).filter(Boolean))];

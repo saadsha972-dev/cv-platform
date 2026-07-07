@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createZai, getLlmBackend } from "@/lib/zai-init";
+import { createZai, getLlmDiagnostics } from "@/lib/zai-init";
 
 export const runtime = "nodejs";
 
@@ -13,7 +13,8 @@ export async function GET() {
   // Try initializing the client
   try {
     const zai = await createZai();
-    status.backend = getLlmBackend() || "unknown";
+    const diag = getLlmDiagnostics();
+    status.backend = diag.zai_token_set ? "z.ai" : diag.groq_key_set ? "groq" : "none";
     status.ready = true;
 
     // Quick test call
@@ -26,7 +27,8 @@ export async function GET() {
   } catch (err: any) {
     status.ready = false;
     status.error = err.message?.slice(0, 300) || "Unknown error";
-    status.backend = getLlmBackend() || "none";
+    const diag = getLlmDiagnostics();
+    status.backend = diag.zai_token_set ? "z.ai" : diag.groq_key_set ? "groq" : "none";
   }
 
   return NextResponse.json(status);
