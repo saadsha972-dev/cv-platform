@@ -357,16 +357,27 @@ function drawExperience(doc: jsPDF, e: ExperienceEntry, y: number, maxY: number,
   doc.setFontSize(F.small); setClr(doc, C.gray); doc.setFont("helvetica", "normal");
   doc.text(e.dates, CONTENT_X + CW, y, { align: "right" }); y += 4.2;
   doc.setFontSize(F.expCompany); setClr(doc, C.mid); doc.setFont("helvetica", "italic");
-  doc.text(`${e.company}  |  ${e.location}`, CONTENT_X + 7, y, { maxWidth: CW - 12 }); y += 4;
+  doc.text(`${e.company}  |  ${e.location}`, CONTENT_X + 7, y, { maxWidth: CW - 12 }); y += 4.5;
   setClr(doc, C.body); doc.setFont("helvetica", "normal");
   const bulletCount = Math.min(e.bullets.length, maxBullets);
   for (let i = 0; i < bulletCount; i++) {
-    if (y > maxY - 6) break;
+    if (y > maxY - 8) break;
+    // Draw diamond marker only on the first line of each bullet
     goldDiamond(doc, CONTENT_X + 9, y - 1, 1.2);
     doc.setFontSize(F.bullet); setClr(doc, C.body);
     const lines = doc.splitTextToSize(e.bullets[i], CW - 18);
-    for (const line of lines) { if (y > maxY - 4) break; doc.text(line, CONTENT_X + 13, y); y += 3.5; }
-    y += 1;
+    for (let li = 0; li < lines.length; li++) {
+      if (y > maxY - 4) break;
+      if (li > 0) {
+        // Continuation lines: indent past the diamond, use a lighter color
+        setClr(doc, C.mid);
+        doc.text(lines[li], CONTENT_X + 13, y);
+      } else {
+        doc.text(lines[li], CONTENT_X + 13, y);
+      }
+      y += 3.8;
+    }
+    y += 1.2;
   }
   return y;
 }

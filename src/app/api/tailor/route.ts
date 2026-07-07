@@ -28,53 +28,51 @@ export async function POST(req: NextRequest) {
     }
 
     // --- STEP 1: Analyze job posting ---
+    // Now that llm-tailor.ts retries on JSON parse failures, this will only
+    // fail if ALL models (8B + 70B + 70B-versatile) are unavailable or rate-limited.
     console.log(`[tailor] Step 1/4: Analyzing job posting for ${cvVariantSlug}...`);
     let analysis;
-    let tailored;
-    let usedFallback = false;
-
     try {
       analysis = await analyzeJobPosting(jobPosting);
-      console.log(`[tailor] Step 1 done. Job: ${analysis.jobTitle} at ${analysis.company}`);
+      console.log(`[tailor] Step 1 done. Job: ${analysis.jobTitle} at ${analysis.company}, Keywords: ${analysis.keywords.length}`);
     } catch (err: any) {
-      console.warn(`[tailor] Step 1 failed (LLM rate limit?), using basic extraction: ${err.message}`);
-      // Fallback: extract basic info without LLM
-      const firstLine = jobPosting.split("\n")[0]?.trim() || "";
-      analysis = {
-        jobTitle: body.jobTitle || "Unknown Role",
-        company: body.company || "Not specified",
-        location: "Not specified",
-        keywords: [],
-        requirements: [],
-        responsibilities: [],
-        seniority: "senior" as const,
-        tone: "formal" as const,
-        industry: "Unknown",
-      };
-      usedFallback = true;
+      console.error(`[tailor] Step 1 FAILED completely: ${err.message}`);
+      // Only fallback if we have user-provided title/company, otherwise error out
+      if (body.jobTitle || body.company) {
+        analysis = {
+          jobTitle: body.jobTitle || "Unknown Role",
+          company: body.company || "Not specified",
+          location: "Not specified",
+          keywords: [],
+          requirements: [],
+          responsibilities: [],
+          seniority: "senior" as const,
+          tone: "formal" as const,
+          industry: "Unknown",
+        };
+      } else {
+        return NextResponse.json({
+          error: `AI analysis failed — could not extract job details from the posting. ${err.message?.slice(0, 200) || ""}`,
+          step: "ai_analysis_failed",
+        }, { status: 503 });
+      }
     }
 
     // --- STEP 2: Tailor CV content with LLM ---
+    // llm-tailor.ts now retries JSON parse failures with 70B models.
+    // This will only throw if ALL models fail.
     console.log(`[tailor] Step 2/4: Tailoring CV content with LLM...`);
+    let tailored;
     try {
       tailored = await tailorCvForJob(baseCv, analysis);
-      console.log(`[tailor] Step 2 done. ${Object.keys(tailored.tailoredBullets || {}).length} bullet sets`);
+      console.log(`[tailor] Step 2 done. ${Object.keys(tailored.tailoredBullets || {}).length} bullet sets tailored`);
     } catch (err: any) {
-      console.warn(`[tailor] Step 2 failed (LLM rate limit?), generating base CV without tailoring: ${err.message}`);
-      // Fallback: use base CV as-is
-      const currentSb1 = baseCv.sidebarPage1[0];
-      tailored = {
-        tailoredSummary: baseCv.summary,
-        tailoredBullets: {},
-        matchedKeywords: [],
-        missingKeywords: [],
-        tailoredSidebarSection1: {
-          title: currentSb1?.title || "Core Competencies",
-          items: currentSb1?.items.map((i: any) => (Array.isArray(i) ? i[0] : String(i))) || [],
-        },
-        tailoredCoverLetter: "",
-      };
-      usedFallback = true;
+      console.error(`[tailor] Step 2 FAILED completely: ${err.message}`);
+      // Don't silently fall back — return an error so the user knows
+      return NextResponse.json({
+        error: `AI tailoring failed after multiple attempts. The AI models could not generate properly formatted tailored content. Please try again in a minute — this is usually a temporary issue. Details: ${err.message?.slice(0, 300) || "Unknown error"}`,
+        step: "ai_tailoring_failed",
+      }, { status: 503 });
     }
 
     // Build a lookup that matches bullets by job title (handles both
@@ -200,7 +198,6 @@ export async function POST(req: NextRequest) {
     if (customQualifications?.trim()) {
       const pairs = parsePairLines(customQualifications);
       if (pairs.length > 0) {
-        // Replace the 2nd sidebar section (index 1) or add one
         const sb1 = [...tailoredCv.sidebarPage1];
         if (sb1.length > 1 && !sb1[1].title.toUpperCase().includes("LANG")) {
           sb1[1] = { ...sb1[1], title: sb1[1].title, items: pairs };
@@ -229,7 +226,6 @@ export async function POST(req: NextRequest) {
       const pairs = parsePairLines(customTrainings);
       if (pairs.length > 0) {
         const sb2 = [...tailoredCv.sidebarPage2];
-        // Replace first non-education section or first section
         const trainIdx = sb2.findIndex(s => !s.title.toUpperCase().includes("EDUCATION") && !s.title.toUpperCase().includes("SKILL PROF") && !s.title.toUpperCase().includes("METRIC") && !s.title.toUpperCase().includes("HIGHLIGHT"));
         if (trainIdx >= 0) {
           sb2[trainIdx] = { ...sb2[trainIdx], title: sb2[trainIdx].title, items: pairs };
@@ -314,7 +310,6 @@ export async function POST(req: NextRequest) {
       }
     } catch (dbErr: any) {
       console.error(`[tailor] DB save failed (non-fatal):`, dbErr.message);
-      // Continue — the PDFs are already generated, we just couldn't save the record
     }
 
     console.log(`[tailor] All done. CV PDF: ${cvPdfBase64.length} chars base64, Cover: ${coverLetterPdfBase64.length} chars base64`);
@@ -325,21 +320,19 @@ export async function POST(req: NextRequest) {
       tailoredContent: tailored,
       cvPdfBase64,
       coverLetterPdfBase64,
-      fallback: usedFallback,
     });
   } catch (err: any) {
     console.error("[tailor] Unhandled error:", err.message, err.stack?.split("\n").slice(0, 5));
 
-    // Detect LLM-not-available error and give user actionable message
     const msg = err.message || "Tailoring failed";
     const isLlmError = msg.includes("No LLM available") || msg.includes("GROQ_API_KEY") || msg.includes("SDK") || msg.includes("invalid or disabled");
     const isRateLimit = msg.includes("rate-limited") || msg.includes("429");
 
     return NextResponse.json({
       error: isLlmError
-        ? "AI tailoring is currently unavailable (API key issue). Your CV was generated using the professional base template. To enable AI tailoring, update GROQ_API_KEY in Vercel Settings → Environment Variables."
+        ? "AI tailoring is currently unavailable (API key issue). To enable AI tailoring, update GROQ_API_KEY in Vercel Settings → Environment Variables."
         : isRateLimit
-          ? "AI is temporarily busy. Your CV has been generated using the professional base template. Try again in a few minutes for AI-tailored content."
+          ? "AI is temporarily busy. Try again in a few minutes for AI-tailored content."
           : msg,
       step: isLlmError ? "ai_not_configured" : isRateLimit ? "rate_limited" : "unknown",
     }, { status: 500 });

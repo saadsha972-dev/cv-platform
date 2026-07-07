@@ -387,9 +387,9 @@ function TailorTab() {
     setResult(null);
 
     try {
-      // Abort after 90 seconds
+      // Abort before server maxDuration (120s)
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 90_000);
+      const timeout = setTimeout(() => controller.abort(), 115_000);
 
       const res = await fetch("/api/tailor", {
         method: "POST",
@@ -444,7 +444,13 @@ function TailorTab() {
         },
       };
       setResult(safe);
-      toast({ title: "CV tailored!", description: `Generated for ${safe.jobAnalysis.jobTitle} at ${safe.jobAnalysis.company}` });
+      // Check if AI tailoring was actually applied (keywords extracted)
+      const kwCount = safe.jobAnalysis.keywords.length;
+      if (kwCount === 0) {
+        toast({ title: "CV generated (base template)", description: `AI could not extract keywords from this posting. The base CV template was used for ${safe.jobAnalysis.jobTitle}. Try again or paste a more detailed job posting.`, variant: "destructive" });
+      } else {
+        toast({ title: "CV tailored successfully!", description: `Generated for ${safe.jobAnalysis.jobTitle} at ${safe.jobAnalysis.company} — ${kwCount} keywords extracted, ${safe.tailoredContent.matchedKeywords.length} matched` });
+      }
     } catch (err: any) {
       const msg = err.name === "AbortError"
         ? "Request timed out (90s). The AI analysis is taking too long — try a shorter job posting."
