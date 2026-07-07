@@ -71,6 +71,9 @@ interface TailoredContent {
   tailoredSummary: string;
   matchedKeywords: string[];
   missingKeywords: string[];
+  tailoredBullets?: Record<string, string[]>;
+  tailoredSidebarSection1?: { title: string; items: string[] };
+  tailoredCoverLetter?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -659,6 +662,17 @@ function TailorTab() {
                 </div>
               )}
 
+              {/* Tailored Summary Preview */}
+              {result.tailoredContent?.tailoredSummary && (
+                <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+                  <h4 className="text-sm font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    AI-Tailored Summary
+                  </h4>
+                  <p className="text-xs text-slate-700 leading-relaxed">{result.tailoredContent.tailoredSummary}</p>
+                </div>
+              )}
+
               <Separator />
 
               {/* Download Buttons */}
@@ -739,9 +753,13 @@ function HunterTab() {
       });
       const data = await res.json();
       if (data.success) {
+        const totalFound = data.totalFound || 0;
+        const totalSaved = data.totalSaved || data.results.reduce((s: number, r: any) => s + r.saved, 0);
         toast({
           title: "Search complete!",
-          description: data.results.map((r: any) => `${r.profile}: ${r.saved} saved`).join(" · "),
+          description: totalFound > 0
+            ? `Found ${totalFound} jobs, ${totalSaved} new saved to your list.`
+            : data.results.map((r: any) => `${r.profile}: ${r.saved} saved`).join(" · "),
         });
         loadJobs();
       } else if (data.needsSetup) {
@@ -751,10 +769,11 @@ function HunterTab() {
           variant: "destructive",
         });
       } else {
-        throw new Error(data.error || "Search failed");
+        throw new Error(data.error || "No new jobs found — all results are already in your list.");
       }
     } catch (err: any) {
-      toast({ title: "Search failed", description: err.message, variant: "destructive" });
+      toast({ title: "Search result", description: err.message, variant: "destructive" });
+      loadJobs(); // Still reload — might have old jobs to show
     } finally {
       setSearching(false);
     }

@@ -32,8 +32,8 @@ const C = {
 
 const F = {
   bannerName: 24, bannerTitle: 11.5, bannerContact: 8.5,
-  secHdr: 11, body: 9.2, bullet: 8.8, small: 7.8, tiny: 7,
-  skill: 8.2, certName: 8.3, expTitle: 10, expCompany: 8.8, tag: 7.8,
+  secHdr: 11, body: 9, bullet: 8.5, small: 7.5, tiny: 7,
+  skill: 8, certName: 8, expTitle: 10, expCompany: 8.5, tag: 7.5,
 };
 
 function setClr(doc: jsPDF, rgb: number[]) { doc.setTextColor(rgb[0], rgb[1], rgb[2]); }
@@ -53,7 +53,7 @@ function goldLine(doc: jsPDF, y: number, x1: number, x2: number, w?: number) {
   doc.line(x1, y, x2, y);
 }
 
-function goldDiamond(doc: jsPDF, cx: number, cy: number, size = 1.5) {
+function goldDiamond(doc: jsPDF, cx: number, cy: number, size = 1.2) {
   const s = size / 2;
   doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]);
   doc.triangle(cx, cy - s, cx + s, cy, cx, cy + s, "F");
@@ -67,11 +67,11 @@ function navyRect(doc: jsPDF, x: number, y: number, w: number, h: number) {
 
 function drawGoldTag(doc: jsPDF, text: string, x: number, y: number, maxW: number) {
   doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]);
-  doc.rect(x, y - 3.2, 1.2, 3.8, "F");
+  doc.rect(x, y - 3, 1, 3.5, "F");
   doc.setFontSize(F.tag);
   setClr(doc, C.body);
   doc.setFont("helvetica", "normal");
-  doc.text(text, x + 2.5, y, { maxWidth: maxW - 3 });
+  doc.text(text, x + 2, y - 0.5, { maxWidth: maxW - 2.5 });
 }
 
 function sectionHdr(doc: jsPDF, title: string, y: number, x?: number, xR?: number): number {
@@ -148,8 +148,9 @@ function page1(doc: jsPDF, cv: CvData): void {
   y = sectionHdr(doc, "Professional Summary", y);
   doc.setFontSize(F.body); setClr(doc, C.body); doc.setFont("helvetica", "normal");
   const sumLines = doc.splitTextToSize(cv.summary, CW);
-  for (let i = 0; i < Math.min(sumLines.length, 5); i++) { doc.text(sumLines[i], CONTENT_X, y); y += 4; }
-  y += 4;
+  const maxSumLines = Math.min(sumLines.length, 6);
+  for (let i = 0; i < maxSumLines; i++) { doc.text(sumLines[i], CONTENT_X, y); y += 4.2; }
+  y += 3;
 
   const { skills: allSkills, certs: allCerts, langs: allLangs, otherItems } = categorizeSidebar(cv.sidebarPage1);
   const gap = 8; const colW = (CW - gap) / 2;
@@ -162,12 +163,12 @@ function page1(doc: jsPDF, cv: CvData): void {
   doc.text("KEY COMPETENCIES", leftX + 8, leftY);
   goldLine(doc, leftY + 1.8, leftX, leftX + colW, 0.3);
   leftY += 5.5;
-  const tagColW = (colW - 4) / 2; let tagY = leftY;
+  const tagColW = (colW - 6) / 2; let tagY = leftY;
   for (let i = 0; i < allSkills.length; i++) {
     if (tagY > BOTTOM - 6) break;
     const isRight = i % 2 === 1;
-    drawGoldTag(doc, allSkills[i], isRight ? leftX + tagColW + 4 : leftX, tagY, tagColW - 1);
-    if (isRight || i === allSkills.length - 1) tagY += 4.2;
+    drawGoldTag(doc, allSkills[i], isRight ? leftX + tagColW + 6 : leftX, tagY, tagColW - 2);
+    if (isRight || i === allSkills.length - 1) tagY += 4.5;
   }
 
   // Right: Certifications (only if data) + Languages
@@ -180,10 +181,10 @@ function page1(doc: jsPDF, cv: CvData): void {
     rightY += 5.5;
     for (const [name, desc] of allCerts) {
       if (rightY > BOTTOM - 8) break;
-      doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]); doc.circle(rightX + 2, rightY - 1, 0.6, "F");
+      doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]); doc.circle(rightX + 2, rightY - 1, 0.5, "F");
       doc.setFontSize(F.certName); setClr(doc, C.body); doc.setFont("helvetica", "bold");
-      doc.text(name, rightX + 5, rightY, { maxWidth: colW - 8 }); rightY += 3.8;
-      if (desc) { doc.setFontSize(F.small); setClr(doc, C.gray); doc.setFont("helvetica", "normal"); doc.text(desc, rightX + 6.5, rightY, { maxWidth: colW - 10 }); rightY += 3.2; }
+      doc.text(name, rightX + 5, rightY, { maxWidth: colW - 8 }); rightY += 3.5;
+      if (desc) { doc.setFontSize(F.small); setClr(doc, C.gray); doc.setFont("helvetica", "normal"); doc.text(desc, rightX + 5, rightY, { maxWidth: colW - 8 }); rightY += 3.2; }
     }
     rightY += 2;
   }
@@ -195,10 +196,10 @@ function page1(doc: jsPDF, cv: CvData): void {
     rightY += 5.5;
     for (const [name, desc] of otherItems) {
       if (rightY > BOTTOM - 8) break;
-      doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]); doc.circle(rightX + 2, rightY - 1, 0.6, "F");
+      doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]); doc.circle(rightX + 2, rightY - 1, 0.5, "F");
       doc.setFontSize(F.certName); setClr(doc, C.body); doc.setFont("helvetica", "bold");
-      doc.text(name, rightX + 5, rightY, { maxWidth: colW - 8 }); rightY += 3.8;
-      if (desc) { doc.setFontSize(F.small); setClr(doc, C.gray); doc.setFont("helvetica", "normal"); doc.text(desc, rightX + 6.5, rightY, { maxWidth: colW - 10 }); rightY += 3.2; }
+      doc.text(name, rightX + 5, rightY, { maxWidth: colW - 8 }); rightY += 3.5;
+      if (desc) { doc.setFontSize(F.small); setClr(doc, C.gray); doc.setFont("helvetica", "normal"); doc.text(desc, rightX + 5, rightY, { maxWidth: colW - 8 }); rightY += 3.2; }
     }
     rightY += 2;
   }
@@ -339,7 +340,7 @@ function page2(doc: jsPDF, cv: CvData): void {
       doc.text(`  |  ${e.dates}`, CONTENT_X + 5 + hdrW + placeW, ey); ey += 4;
       doc.setFontSize(F.bullet); setClr(doc, C.mid); doc.setFont("helvetica", "normal");
       const oneLines = doc.splitTextToSize(e.oneLiner, CW - 10);
-      for (const line of oneLines) { if (ey > BOTTOM - 4) break; doc.text(line, CONTENT_X + 7, ey); ey += 3.6; }
+      for (const line of oneLines) { if (ey > BOTTOM - 4) break; doc.text(line, CONTENT_X + 7, ey); ey += 4; }
       ey += 2;
     }
   }
@@ -347,37 +348,40 @@ function page2(doc: jsPDF, cv: CvData): void {
 }
 
 function drawExperience(doc: jsPDF, e: ExperienceEntry, y: number, maxY: number, maxBullets: number = 4): number {
-  if (y > maxY - 20) return y;
+  if (y > maxY - 22) return y;
+  // Gold accent bar
   doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]);
   doc.rect(CONTENT_X, y - 3, 2.5, 8, "F");
   doc.setFillColor(C.goldLt[0], C.goldLt[1], C.goldLt[2]);
   doc.rect(CONTENT_X + 1, y - 2, 0.5, 6, "F");
+  // Title + dates row
   doc.setFontSize(F.expTitle); setClr(doc, C.navy); doc.setFont("helvetica", "bold");
   doc.text(e.title, CONTENT_X + 7, y, { maxWidth: CW - 50 });
   doc.setFontSize(F.small); setClr(doc, C.gray); doc.setFont("helvetica", "normal");
-  doc.text(e.dates, CONTENT_X + CW, y, { align: "right" }); y += 4.2;
+  doc.text(e.dates, CONTENT_X + CW, y, { align: "right" }); y += 4.5;
+  // Company + location row
   doc.setFontSize(F.expCompany); setClr(doc, C.mid); doc.setFont("helvetica", "italic");
-  doc.text(`${e.company}  |  ${e.location}`, CONTENT_X + 7, y, { maxWidth: CW - 12 }); y += 4.5;
+  doc.text(`${e.company}  |  ${e.location}`, CONTENT_X + 7, y, { maxWidth: CW - 12 }); y += 5;
+  // Bullets
   setClr(doc, C.body); doc.setFont("helvetica", "normal");
+  const bulletTextW = CW - 18;
   const bulletCount = Math.min(e.bullets.length, maxBullets);
   for (let i = 0; i < bulletCount; i++) {
-    if (y > maxY - 8) break;
-    // Draw diamond marker only on the first line of each bullet
-    goldDiamond(doc, CONTENT_X + 9, y - 1, 1.2);
+    if (y > maxY - 10) break;
     doc.setFontSize(F.bullet); setClr(doc, C.body);
-    const lines = doc.splitTextToSize(e.bullets[i], CW - 18);
+    const lines = doc.splitTextToSize(e.bullets[i], bulletTextW);
     for (let li = 0; li < lines.length; li++) {
-      if (y > maxY - 4) break;
+      if (y > maxY - 5) break;
+      // Small dot marker on each line (not a diamond — cleaner, no overlap)
+      doc.setFillColor(C.gold[0], C.gold[1], C.gold[2]);
+      doc.circle(CONTENT_X + 9.5, y - 1.2, 0.45, "F");
       if (li > 0) {
-        // Continuation lines: indent past the diamond, use a lighter color
         setClr(doc, C.mid);
-        doc.text(lines[li], CONTENT_X + 13, y);
-      } else {
-        doc.text(lines[li], CONTENT_X + 13, y);
       }
-      y += 3.8;
+      doc.text(lines[li], CONTENT_X + 12.5, y);
+      y += 4.2;
     }
-    y += 1.2;
+    y += 1.5;
   }
   return y;
 }

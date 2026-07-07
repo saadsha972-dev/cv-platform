@@ -296,8 +296,8 @@ export async function POST(req: NextRequest) {
     const totalSaved = results.reduce((sum, r) => sum + r.saved, 0);
 
     const resp: any = totalSaved === 0
-      ? { success: false, error: "No new jobs found. Try again later or adjust your search profile keywords.", results }
-      : { success: true, results };
+      ? { success: false, error: `All ${results.reduce((s, r) => s + r.found, 0)} jobs found already exist in your list (duplicates). Try again in a few days for new postings, or adjust your search profile keywords.`, results, totalFound: results.reduce((s, r) => s + r.found, 0) }
+      : { success: true, results, totalFound: results.reduce((s, r) => s + r.found, 0), totalSaved };
 
     if (debug) {
       resp._timing = `${Date.now() - t0}ms`;
