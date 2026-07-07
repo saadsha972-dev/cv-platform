@@ -19,30 +19,31 @@ const SERPER_KEY = process.env.SERPER_API_KEY || "89280a05e2a42179789766db50570d
 // TRUSTED DOMAINS — real job boards (used for source tagging, NOT in queries)
 // ---------------------------------------------------------------------------
 const TRUSTED_DOMAINS: Array<{ pattern: RegExp; source: string }> = [
-  { pattern: /linkedin\.com\/jobs\/view\//, source: "linkedin" },
-  { pattern: /indeed\.com\/(job|rc|company)\//, source: "indeed" },
-  { pattern: /glassdoor\.com\/Job\//, source: "glassdoor" },
-  { pattern: /seek\.com\.au\/job\//, source: "seek" },
+  { pattern: /linkedin\.com\/jobs/, source: "linkedin" },
+  { pattern: /indeed\.com\//, source: "indeed" },
+  { pattern: /glassdoor\.com\/(Job|Overview)/, source: "glassdoor" },
+  { pattern: /seek\.com\.au\/job/, source: "seek" },
+  { pattern: /ziprecruiter\.com\/Jobs/, source: "ziprecruiter" },
+  { pattern: /monster\.com\/jobs/, source: "monster" },
   { pattern: /weworkremotely\.com/, source: "weworkremotely" },
   { pattern: /remoteok\.com/, source: "remoteok" },
   { pattern: /flexjobs\.com/, source: "flexjobs" },
-  { pattern: /ziprecruiter\.com/, source: "ziprecruiter" },
-  { pattern: /monster\.com/, source: "monster" },
-  { pattern: /stepstone\.de/, source: "stepstone" },
-  { pattern: /xing\.com\/jobs\//, source: "xing" },
-  { pattern: /reed\.co\.uk\/jobs\//, source: "reed" },
-  { pattern: /builtin\.com/, source: "builtin" },
+  { pattern: /stepstone\.de\/jobs/, source: "stepstone" },
+  { pattern: /xing\.com\/jobs/, source: "xing" },
+  { pattern: /reed\.co\.uk\/jobs/, source: "reed" },
+  { pattern: /builtin\.com\/jobs/, source: "builtin" },
   { pattern: /justremote\.co/, source: "justremote" },
   { pattern: /remoteco\.com/, source: "remoteco" },
-  { pattern: /lever\.co/, source: "lever" },
-  { pattern: /greenhouse\.io/, source: "greenhouse" },
+  { pattern: /lever\.co\/jobs/, source: "lever" },
+  { pattern: /greenhouse\.io\/jobs/, source: "greenhouse" },
   { pattern: /myworkdayjobs\.com/, source: "workday" },
-  { pattern: /careers-at\./, source: "careers-at" },
-  { pattern: /\/careers\?/, source: "careers-page" },
-  { pattern: /naukri\.com/, source: "naukri" },
-  { pattern: /gulftalent\.com/, source: "gulftalent" },
-  { pattern: /bayt\.com/, source: "bayt" },
-  { pattern: /rozee\.pk/, source: "rozee" },
+  { pattern: /naukri\.com\/job/, source: "naukri" },
+  { pattern: /gulftalent\.com\/jobs/, source: "gulftalent" },
+  { pattern: /bayt\.com\/job/, source: "bayt" },
+  { pattern: /rozee\.pk\/job/, source: "rozee" },
+  { pattern: /workingnomads\.com/, source: "workingnomads" },
+  { pattern: /remoterocketship\.com/, source: "remoterocketship" },
+  { pattern: /weworkremotely/, source: "weworkremotely" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -196,16 +197,17 @@ function parseJob(item: any, country: string): RemoteJob | null {
     if (p.test(checkText)) return null;
   }
 
-  // Skip numeric-only titles (category pages)
-  if (/^\d+\+?\s/i.test(title)) return null;
+  // Skip pure numeric titles (e.g. "5 jobs")
+  if (/^\d{1,3}\s*$/i.test(title.trim())) return null;
 
   // For untrusted sources, require job-related keywords
-  const jobWords = /manager|director|senior|lead|engineer|developer|designer|analyst|specialist|consultant|architect|coordinator|head|vp|chief|president|officer|superintendent|supervisor|technician|administrator|executive/i;
+  const jobWords = /manager|management|director|senior|lead|engineer|developer|designer|analyst|specialist|consultant|architect|coordinator|head|vp|chief|president|officer|superintendent|supervisor|technician|administrator|executive|accountant|recruiter|planner|controller|advisor/i;
   if (!trusted && !jobWords.test(checkText)) return null;
 
-  // Require "remote" or "work from home" or "wfh" in the text for remote search
+  // Require "remote" or similar in the text for remote search
   const remoteWords = /remote|work.?from.?home|wfh|distributed|telecommut/i;
-  if (!remoteWords.test(checkText)) return null;
+  // Skip this check for trusted job boards (they may not say "remote" in snippet)
+  if (!trusted && !remoteWords.test(checkText)) return null;
 
   // Parse title + company
   let jobTitle = title;
