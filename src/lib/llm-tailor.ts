@@ -1,17 +1,18 @@
 /**
  * LLM Tailor Module
  * ==================
- * Uses z-ai-web-dev-sdk to:
+ * Calls the LLM (via zai-init.ts composite client) to:
  * 1. Analyze a job posting → extract keywords, requirements, seniority, tone
  * 2. Tailor a CV variant's summary + bullets to emphasize relevant keywords
  * 3. Generate a cover letter that addresses the specific job
  * 4. Score how well a job posting matches a CV variant
  *
- * KEY FIX: JSON parse failures now RETRY with larger models instead of
- * silently returning the original unmodified CV content.
+ * The composite client in zai-init.ts automatically tries z.ai first,
+ * then falls back to Groq if z.ai fails. This module retries JSON parse
+ * failures with different model hints to maximize success.
  */
 
-import { createZai, getLlmBackend } from "./zai-init";
+import { createZai, getLlmDiagnostics } from "./zai-init";
 import { CvData } from "./cv-data";
 
 const getZai = createZai;
@@ -22,7 +23,9 @@ const getZai = createZai;
 
 /**
  * Call the LLM and parse the JSON response.
- * If the first model returns unparseable JSON, retry with fallback models.
+ * Retries with different model hints on JSON parse failure.
+ * The underlying composite client (zai-init.ts) already handles
+ * z.ai → Groq fallback at the transport level.
  * Throws if ALL attempts fail to produce valid JSON.
  */
 async function callLlmAndParseJson<T>(
@@ -33,36 +36,65 @@ async function callLlmAndParseJson<T>(
   label: string,
 ): Promise<T> {
   const zai = await getZai();
-  const backend = getLlmBackend();
-  const maxAttempts = backend === "groq" ? 4 : 3;
+
+  // Log diagnostics on first call
+  console.log(`[llm-tailor] ${label} starting. Diagnostics:`, JSON.stringify(getLlmDiagnostics()));
+
+  // Models to try — start with default (composite client picks best), 
+  // then hint specific Groq models on retries for better JSON quality
+  const MODEL_HINTS = [
+    undefined,                       // attempt 1: let composite client decide
+    "llama3-70b-8192",              // attempt 2: force 70B for better JSON
+    "llama-3.3-70b-versatile",      // attempt 3: try versatile 70B
+  ];
+  const maxAttempts = MODEL_HINTS.length;
   let lastError = "";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      // For Groq: try different models on retry. For z.ai: retry same model.
-      const body: any = { messages, temperature, max_tokens: maxTokens };
-      if (backend === "groq" && attempt === 2) body.model = "llama3-70b-8192";
-      if (backend === "groq" && attempt === 3) body.model = "llama-3.3-70b-versatile";
-      if (backend === "groq" && attempt === 4) body.model = "llama3-70b-8192";
+      const body: any = {
+        messages,
+        temperature,
+        max_tokens: maxTokens,
+      };
+      // Set model hint for retries (attempt 2+)
+      if (MODEL_HINTS[attempt - 1]) {
+        body.model = MODEL_HINTS[attempt - 1];
+      }
+      console.log(`[llm-tailor] ${label}: attempt ${attempt}/${maxAttempts}, model_hint=${body.model || "auto"}`);
 
       const response = await zai.chat.completions.create(body);
       const content = response.choices?.[0]?.message?.content?.trim() || "";
-      const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+
+      if (!content) {
+        lastError = "LLM returned empty content";
+        console.warn(`[llm-tailor] ${label}: attempt ${attempt} → empty content`);
+        continue;
+      }
+
+      console.log(`[llm-tailor] ${label}: attempt ${attempt} → ${content.length} chars received`);
+      console.log(`[llm-tailor] ${label}: raw response (first 500 chars): ${content.slice(0, 500)}`);
+
+      const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
       const result = parseAndValidate(cleaned);
       if (result) {
-        console.log(`[llm-tailor] ${label}: parsed OK on attempt ${attempt}/${maxAttempts} (${content.length} chars, backend: ${backend})`);
+        console.log(`[llm-tailor] ${label}: PARSED OK on attempt ${attempt}/${maxAttempts}`);
         return result;
       }
-      lastError = `Invalid JSON. First 200 chars: ${cleaned.slice(0, 200)}`;
-      console.warn(`[llm-tailor] ${label}: attempt ${attempt} returned invalid JSON${attempt < maxAttempts ? ", retrying..." : ""}`);
+      lastError = `Invalid JSON. First 300 chars: ${cleaned.slice(0, 300)}`;
+      console.warn(`[llm-tailor] ${label}: attempt ${attempt} → invalid JSON, retrying...`);
     } catch (err: any) {
       lastError = err.message || "Unknown error";
-      console.warn(`[llm-tailor] ${label}: attempt ${attempt} failed (${lastError.slice(0, 100)})${attempt < maxAttempts ? ", retrying..." : ""}`);
+      console.error(`[llm-tailor] ${label}: attempt ${attempt} → ERROR: ${lastError.slice(0, 200)}`);
     }
   }
 
   // All attempts failed
-  throw new Error(`AI ${label} failed after ${maxAttempts} attempts (backend: ${backend}). Last error: ${lastError.slice(0, 300)}`);
+  throw new Error(
+    `AI ${label} failed after ${maxAttempts} attempts. ` +
+    `Diagnostics: z.ai=${!!process.env.ZAI_TOKEN}, groq=${!!process.env.GROQ_API_KEY}. ` +
+    `Last error: ${lastError.slice(0, 300)}`
+  );
 }
 
 // ---------------------------------------------------------------------------

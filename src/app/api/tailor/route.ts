@@ -325,12 +325,12 @@ export async function POST(req: NextRequest) {
     console.error("[tailor] Unhandled error:", err.message, err.stack?.split("\n").slice(0, 5));
 
     const msg = err.message || "Tailoring failed";
-    const isLlmError = msg.includes("No LLM available") || msg.includes("GROQ_API_KEY") || msg.includes("SDK") || msg.includes("invalid or disabled");
+    const isLlmError = msg.includes("No LLM backend configured") || msg.includes("All backends failed") || msg.includes("invalid or disabled") || msg.includes("ZAI_TOKEN");
     const isRateLimit = msg.includes("rate-limited") || msg.includes("429");
 
     return NextResponse.json({
       error: isLlmError
-        ? "AI tailoring is currently unavailable (API key issue). To enable AI tailoring, update GROQ_API_KEY in Vercel Settings → Environment Variables."
+        ? "AI tailoring is currently unavailable — all LLM backends (z.ai + Groq) failed. Ensure ZAI_TOKEN or GROQ_API_KEY is set in Vercel Settings → Environment Variables."
         : isRateLimit
           ? "AI is temporarily busy. Try again in a few minutes for AI-tailored content."
           : msg,
