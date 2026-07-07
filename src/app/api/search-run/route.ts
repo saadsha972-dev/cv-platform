@@ -112,7 +112,9 @@ function parseJob(item: any, fallbackLocation: string): RawJob | null {
 // ---------------------------------------------------------------------------
 // INLINE JOB SEARCH — 2-3 queries per profile, no tbs, fast
 // ---------------------------------------------------------------------------
-async function searchJobsForProfile(keywords: string[], countries: string[], excludeKeywords: string[]): Promise<RawJob[]> {
+interface SearchResult { jobs: RawJob[]; queryErrors: string[]; queryCount: number }
+
+async function searchJobsForProfile(keywords: string[], countries: string[], excludeKeywords: string[]): Promise<SearchResult> {
   const apiKey = process.env.SERPER_API_KEY || "89280a05e2a42179789766db50570d66f5d52b1e";
   const primaryKw = keywords[0];
   const secondKw = keywords[1];
@@ -177,6 +179,7 @@ async function searchJobsForProfile(keywords: string[], countries: string[], exc
   console.log(`[search] Total: ${allJobs.length} jobs for ${primaryKw}, errors: ${queryErrors.length}`);
   return { jobs: allJobs, queryErrors, queryCount: queries.length };
 }
+
 
 // ---------------------------------------------------------------------------
 // KEYWORD-BASED SCORING (no LLM dependency)

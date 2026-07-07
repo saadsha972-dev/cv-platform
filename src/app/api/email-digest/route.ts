@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (!jobs.length) {
-      return NextResponse.json({ success: false, message: "No new jobs to send" });
+      return NextResponse.json({ success: false, message: "No new jobs to send. Jobs must have status 'new', not yet emailed, and match score above your filter." });
     }
 
     // Flatten matches — a job may match multiple CV variants
@@ -90,11 +90,11 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ success: true, messageId: result.messageId, sent: emailJobs.length });
     } else {
-      // Return 503 if SMTP isn't configured so the frontend can show a setup message
-      const isConfigError = result.error?.includes("SMTP") || result.error?.includes("environment variable");
+      // Provide actionable setup message
+      const needsSetup = result.error?.includes("RESEND_API_KEY") || result.error?.includes("SMTP") || result.error?.includes("environment variable") || result.error?.includes("No email backend");
       return NextResponse.json(
-        { success: false, error: result.error, needsSetup: isConfigError },
-        { status: isConfigError ? 503 : 500 }
+        { success: false, error: result.error, needsSetup },
+        { status: needsSetup ? 503 : 500 }
       );
     }
   } catch (err: any) {

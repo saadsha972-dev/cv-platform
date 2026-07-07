@@ -464,6 +464,8 @@ function TailorTab() {
     }
   };
 
+  const [downloadingDocx, setDownloadingDocx] = useState(false);
+
   const downloadPdf = (base64: string, filename: string) => {
     const blob = new Blob([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
@@ -472,6 +474,38 @@ function TailorTab() {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const downloadDocx = async () => {
+    if (!result || !selectedSlug) return;
+    setDownloadingDocx(true);
+    try {
+      const res = await fetch("/api/docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cvVariantSlug: selectedSlug,
+          tailoredContent: result.tailoredContent,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.docxBase64) {
+        const blob = new Blob([Uint8Array.from(atob(data.docxBase64), (c) => c.charCodeAt(0))], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = data.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast({ title: "Word document downloaded!", description: "Editable .docx file saved to your downloads." });
+      } else {
+        toast({ title: "DOCX generation failed", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "DOCX download failed", description: err.message, variant: "destructive" });
+    } finally {
+      setDownloadingDocx(false);
+    }
   };
 
   return (
@@ -693,6 +727,19 @@ function TailorTab() {
                   Cover Letter (PDF)
                 </Button>
               </div>
+              <Button
+                onClick={downloadDocx}
+                disabled={downloadingDocx}
+                variant="outline"
+                className="w-full border-green-300 text-green-700 hover:bg-green-50"
+              >
+                {downloadingDocx ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <FileText className="w-4 h-4 mr-2" />
+                )}
+                Download Editable Word (.docx)
+              </Button>
             </div>
           )}
         </CardContent>

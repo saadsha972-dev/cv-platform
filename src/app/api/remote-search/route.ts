@@ -1,11 +1,14 @@
 /**
- * POST /api/remote-search  — V3 Natural Query Remote Job Search
+ * POST /api/remote-search  — V4 Improved Remote Job Search
  * Body: { country?: string }
  *
- * V3: Removed ALL site: operators (blocked on Serper free tier).
- * Uses natural language queries that actually return results.
- * Includes TRUSTED_DOMAINS whitelist for source quality.
- * Batched requests (3 concurrent, 600ms between batches).
+ * V4 Improvements:
+ * - Role-specific queries (QHSE, Quality, Compliance, Safety, HSE)
+ * - Stricter source filtering — only real job listing URLs
+ * - Better duplicate detection via title normalization
+ * - Requires job application indicators in snippet/URL
+ * - More trusted remote-first job boards
+ * - Salary/keyword spam filter
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,38 +19,51 @@ export const maxDuration = 120;
 const SERPER_KEY = process.env.SERPER_API_KEY || "89280a05e2a42179789766db50570d66f5d52b1e";
 
 // ---------------------------------------------------------------------------
-// TRUSTED DOMAINS — real job boards (used for source tagging, NOT in queries)
+// TRUSTED DOMAINS — real job boards / company career pages
 // ---------------------------------------------------------------------------
 const TRUSTED_DOMAINS: Array<{ pattern: RegExp; source: string }> = [
-  { pattern: /linkedin\.com\/jobs/, source: "linkedin" },
-  { pattern: /indeed\.com\//, source: "indeed" },
-  { pattern: /glassdoor\.com\/(Job|Overview)/, source: "glassdoor" },
-  { pattern: /seek\.com\.au\/job/, source: "seek" },
-  { pattern: /ziprecruiter\.com\/Jobs/, source: "ziprecruiter" },
-  { pattern: /monster\.com\/jobs/, source: "monster" },
-  { pattern: /weworkremotely\.com/, source: "weworkremotely" },
-  { pattern: /remoteok\.com/, source: "remoteok" },
-  { pattern: /flexjobs\.com/, source: "flexjobs" },
-  { pattern: /stepstone\.de\/jobs/, source: "stepstone" },
-  { pattern: /xing\.com\/jobs/, source: "xing" },
-  { pattern: /reed\.co\.uk\/jobs/, source: "reed" },
-  { pattern: /builtin\.com\/jobs/, source: "builtin" },
-  { pattern: /justremote\.co/, source: "justremote" },
-  { pattern: /remoteco\.com/, source: "remoteco" },
-  { pattern: /lever\.co\/jobs/, source: "lever" },
-  { pattern: /greenhouse\.io\/jobs/, source: "greenhouse" },
-  { pattern: /myworkdayjobs\.com/, source: "workday" },
-  { pattern: /naukri\.com\/job/, source: "naukri" },
-  { pattern: /gulftalent\.com\/jobs/, source: "gulftalent" },
-  { pattern: /bayt\.com\/job/, source: "bayt" },
-  { pattern: /rozee\.pk\/job/, source: "rozee" },
-  { pattern: /workingnomads\.com/, source: "workingnomads" },
-  { pattern: /remoterocketship\.com/, source: "remoterocketship" },
-  { pattern: /weworkremotely/, source: "weworkremotely" },
+  { pattern: /linkedin\.com\/jobs\/view/, source: "linkedin" },
+  { pattern: /indeed\.com\/(rc\/|viewjob|company\/[^/]+\/jobs)/, source: "indeed" },
+  { pattern: /glassdoor\.com\/Job\/Listing/, source: "glassdoor" },
+  { pattern: /seek\.com\.au\/job\//, source: "seek" },
+  { pattern: /ziprecruiter\.com\/jobs\//, source: "ziprecruiter" },
+  { pattern: /weworkremotely\.com\//, source: "weworkremotely" },
+  { pattern: /remoteok\.com\/remote\//, source: "remoteok" },
+  { pattern: /flexjobs\.com\//, source: "flexjobs" },
+  { pattern: /justremote\.co\/remote-jobs\//, source: "justremote" },
+  { pattern: /remoteco\.com\/remote-jobs\//, source: "remoteco" },
+  { pattern: /lever\.co\/jobs\//, source: "lever" },
+  { pattern: /greenhouse\.io\/jobs\//, source: "greenhouse" },
+  { pattern: /myworkdayjobs\.com\//, source: "workday" },
+  { pattern: /builtin\.com\/jobs\//, source: "builtin" },
+  { pattern: /workingnomads\.com\/jobs\//, source: "workingnomads" },
+  { pattern: /remoterocketship\.com\/remote\//, source: "remoterocketship" },
+  { pattern: /naukri\.com\/job\//, source: "naukri" },
+  { pattern: /gulftalent\.com\/jobs\//, source: "gulftalent" },
+  { pattern: /bayt\.com\/job\//, source: "bayt" },
+  { pattern: /rozee\.pk\/job\//, source: "rozee" },
+  { pattern: /monster\.com\/jobs\//, source: "monster" },
+  { pattern: /stepstone\.de\/jobs\//, source: "stepstone" },
+  { pattern: /xing\.com\/jobs\//, source: "xing" },
+  { pattern: /reed\.co\.uk\/jobs\//, source: "reed" },
+  // Company career pages (ATS)
+  { pattern: /careers\.at\//, source: "careers-at" },
+  { pattern: /\/careers\/(jobs|positions|openings)/, source: "careers-page" },
+  { pattern: /jobs\.lever\.co/, source: "lever" },
+  { pattern: /boards\.greenhouse\.io/, source: "greenhouse" },
 ];
 
 // ---------------------------------------------------------------------------
-// BLOCKED DOMAINS — social media, courses, salary sites
+// BROAD TRUSTED — domains that host jobs but also other content
+// Need job-specific URL patterns
+// ---------------------------------------------------------------------------
+const BROAD_JOB_DOMAINS: RegExp[] = [
+  /linkedin\.com/, /indeed\.com/, /glassdoor\.com/, /monster\.com/,
+  /ziprecruiter\.com/, /seek\.com\.au/, /naukri\.com/, /bayt\.com/,
+];
+
+// ---------------------------------------------------------------------------
+// BLOCKED DOMAINS — social media, courses, salary sites, news
 // ---------------------------------------------------------------------------
 const BLOCKED_DOMAINS: RegExp[] = [
   /instagram\.com/, /tiktok\.com/, /pinterest\.com/,
@@ -55,66 +71,78 @@ const BLOCKED_DOMAINS: RegExp[] = [
   /udemy\.com/, /coursera\.org/, /linkedin\.com\/learning/, /skillshare\.com/,
   /payscale\.com/, /salary\.com/, /glassdoor\.com\/Salary\//,
   /indeed\.com\/career\//, /ziprecruiter\.com\/salary/,
-  /wikipedia\.org/, /slideserve\.com/,
+  /wikipedia\.org/, /slideserve\.com/, /news\./, /blog\./,
+  /medium\.com/, /substack\.com/, /forbes\.com/, /cnbc\.com/,
+  /theguardian\.com/, /nytimes\.com/, /bbc\.com/,
 ];
 
 // ---------------------------------------------------------------------------
-// COUNTRY QUERIES — natural language (NO site: operators)
+// COUNTRY QUERIES — role-specific, natural language
 // ---------------------------------------------------------------------------
 const COUNTRY_QUERIES: Record<string, { gl: string; queries: string[] }> = {
   USA: {
     gl: "us",
     queries: [
-      "remote manager jobs hiring USA 2025",
-      "remote director jobs United States",
-      "remote senior specialist jobs hiring",
-      "work from home manager roles USA",
+      "QHSE manager remote jobs hiring USA",
+      "quality assurance manager remote work from home",
+      "HSE director remote position USA",
+      "ISO lead auditor remote job opening",
+      "compliance manager remote jobs USA 2025",
+      "safety manager remote position hiring",
     ],
   },
   Germany: {
     gl: "de",
     queries: [
-      "remote manager jobs Germany English",
-      "remote director jobs Deutschland hiring",
-      "remote work senior roles Germany",
+      "QHSE manager remote jobs Germany English",
+      "quality manager remote work Deutschland hiring",
+      "HSE remote roles Germany English speaking",
+      "compliance auditor remote jobs Germany",
     ],
   },
   "United Kingdom": {
     gl: "uk",
     queries: [
-      "remote manager jobs UK hiring 2025",
-      "remote director jobs United Kingdom",
-      "work from home senior roles UK",
+      "QHSE manager remote jobs UK hiring 2025",
+      "quality assurance manager remote work UK",
+      "HSE director remote position United Kingdom",
+      "compliance manager remote jobs UK",
     ],
   },
   Australia: {
     gl: "au",
     queries: [
-      "remote manager jobs Australia hiring",
-      "remote senior roles Australia 2025",
-      "work from home director jobs Australia",
+      "QHSE manager remote jobs Australia hiring",
+      "quality manager remote work Australia",
+      "HSE remote roles Australia 2025",
+      "safety manager remote position Australia",
     ],
   },
   Canada: {
     gl: "ca",
     queries: [
-      "remote manager jobs Canada hiring",
-      "remote director jobs Canada 2025",
-      "work from home senior roles Canada",
+      "QHSE manager remote jobs Canada hiring",
+      "quality assurance manager remote work Canada",
+      "HSE director remote position Canada",
+      "compliance manager remote jobs Canada",
     ],
   },
 };
 
 // ---------------------------------------------------------------------------
-// GLOBAL QUERIES — dedicated remote job boards (natural language)
+// GLOBAL QUERIES — dedicated remote job boards + role-specific
 // ---------------------------------------------------------------------------
 const GLOBAL_QUERIES = [
-  "remote manager jobs hiring 2025",
-  "remote senior specialist jobs work from home",
-  "remote director jobs hiring now",
-  "remote engineering manager jobs",
-  "remote project manager jobs global",
-  "remote operations manager jobs hiring",
+  "QHSE manager remote jobs hiring now",
+  "quality assurance manager work from home",
+  "HSE director remote jobs global",
+  "ISO auditor remote position hiring",
+  "safety compliance manager remote work",
+  "remote quality manager jobs 2025",
+  "site:linkedin.com/jobs QHSE manager remote",
+  "site:indeed.com remote quality manager",
+  "site:weworkremotely.com manager",
+  "site:remoteok.com remote manager",
 ];
 
 // ---------------------------------------------------------------------------
@@ -131,12 +159,12 @@ interface RemoteJob {
 }
 
 const SOURCE_PRIORITY: Record<string, number> = {
-  linkedin: 0, indeed: 1, glassdoor: 2, seek: 3,
-  weworkremotely: 4, remoteok: 5, flexjobs: 6, ziprecruiter: 7,
-  monster: 8, lever: 9, greenhouse: 10, workday: 11,
-  stepstone: 12, xing: 13, reed: 14, builtin: 15,
-  justremote: 16, remoteco: 17, "careers-at": 18, "careers-page": 19,
-  naukri: 20, gulftalent: 21, bayt: 22, rozee: 23, other: 99,
+  linkedin: 0, indeed: 1, glassdoor: 2, weworkremotely: 3,
+  remoteok: 4, flexjobs: 5, lever: 6, greenhouse: 7, workday: 8,
+  builtin: 9, ziprecruiter: 10, justremote: 11, workingnomads: 12,
+  remoteco: 13, remoterocketship: 14, monster: 15, seek: 16,
+  stepstone: 17, xing: 18, reed: 19, naukri: 20,
+  gulftalent: 21, bayt: 22, rozee: 23, other: 99,
 };
 
 // ---------------------------------------------------------------------------
@@ -149,11 +177,27 @@ function identifySource(url: string): { source: string; trusted: boolean } {
   for (const entry of TRUSTED_DOMAINS) {
     if (entry.pattern.test(url)) return { source: entry.source, trusted: true };
   }
+  // Check if it's a broad job domain (trusted but URL might not be a specific job)
+  for (const broad of BROAD_JOB_DOMAINS) {
+    if (broad.test(url)) return { source: "other", trusted: false };
+  }
   return { source: "other", trusted: false };
 }
 
 // ---------------------------------------------------------------------------
-// SERPER SEARCH (no site: operators, no tbs)
+// TITLE NORMALIZATION — for dedup
+// ---------------------------------------------------------------------------
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+}
+
+// ---------------------------------------------------------------------------
+// SERPER SEARCH
 // ---------------------------------------------------------------------------
 async function serperSearch(query: string, gl: string, num = 15): Promise<any[]> {
   const res = await fetch("https://google.serper.dev/search", {
@@ -162,7 +206,6 @@ async function serperSearch(query: string, gl: string, num = 15): Promise<any[]>
       "Content-Type": "application/json",
       "X-API-KEY": SERPER_KEY,
     },
-    // NO site: operators, NO tbs — these are blocked/ignored on Serper free tier
     body: JSON.stringify({ q: query, num, gl, hl: "en" }),
   });
   if (!res.ok) {
@@ -174,7 +217,7 @@ async function serperSearch(query: string, gl: string, num = 15): Promise<any[]>
 }
 
 // ---------------------------------------------------------------------------
-// JOB PARSING
+// JOB PARSING — strict filtering for authenticity
 // ---------------------------------------------------------------------------
 function parseJob(item: any, country: string): RemoteJob | null {
   const url = item.link || "";
@@ -186,12 +229,16 @@ function parseJob(item: any, country: string): RemoteJob | null {
 
   const checkText = `${title} ${snippet} ${url}`;
 
-  // Skip non-job content
+  // Skip non-job content — training, courses, news, blogs
   const skipPatterns = [
     /training course/i, /certification training/i, /how to become/i,
     /what does a/i, /salary.*guide/i, /course schedule/i, /\.pdf$/i,
     /job description template/i, /wikipedia\.org/i, /slideserve\.com/i,
     /jobs in all/i, /browse jobs/i, /search jobs/i,
+    /news article/i, /breaking news/i, /opinion:/i,
+    /best.*jobs/i, /top.*jobs.*\d{4}/i, /highest paying/i,
+    /job market/i, /employment outlook/i, /career advice/i,
+    /interview questions/i, /resume tips/i, /cover letter tips/i,
   ];
   for (const p of skipPatterns) {
     if (p.test(checkText)) return null;
@@ -200,14 +247,21 @@ function parseJob(item: any, country: string): RemoteJob | null {
   // Skip pure numeric titles (e.g. "5 jobs")
   if (/^\d{1,3}\s*$/i.test(title.trim())) return null;
 
-  // For untrusted sources, require job-related keywords
-  const jobWords = /manager|management|director|senior|lead|engineer|developer|designer|analyst|specialist|consultant|architect|coordinator|head|vp|chief|president|officer|superintendent|supervisor|technician|administrator|executive|accountant|recruiter|planner|controller|advisor/i;
-  if (!trusted && !jobWords.test(checkText)) return null;
+  // Skip very short titles
+  if (title.trim().length < 8) return null;
 
-  // Require "remote" or similar in the text for remote search
-  const remoteWords = /remote|work.?from.?home|wfh|distributed|telecommut/i;
-  // Skip this check for trusted job boards (they may not say "remote" in snippet)
-  if (!trusted && !remoteWords.test(checkText)) return null;
+  // Require job-related keywords in title
+  const jobTitleWords = /manager|management|director|senior|lead|engineer|developer|designer|analyst|specialist|consultant|architect|coordinator|head|vp|chief|president|officer|superintendent|supervisor|technician|administrator|executive|accountant|recruiter|planner|controller|advisor|auditor|inspector|officer/i;
+  if (!jobTitleWords.test(title)) return null;
+
+  // Require "remote" or WFH in the text for this remote search
+  const remoteWords = /remote|work.?from.?home|wfh|distributed|telecommut|virtual.*location|location.?independent/i;
+  if (!remoteWords.test(checkText)) return null;
+
+  // Skip if URL looks like a category/listing page, not a specific job
+  if (url.includes("linkedin.com/jobs/") && !url.includes("/jobs/view/")) return null;
+  if (url.includes("indeed.com") && !url.includes("/rc/") && !url.includes("/viewjob") && !url.includes("/company/")) return null;
+  if (url.includes("glassdoor.com") && !url.includes("/Job/Listing/")) return null;
 
   // Parse title + company
   let jobTitle = title;
@@ -221,7 +275,7 @@ function parseJob(item: any, country: string): RemoteJob | null {
     const parts = title.split(/\s+[|\-–—]\s+/);
     if (parts.length >= 2) {
       const last = parts[parts.length - 1].trim();
-      const knownSources = ["LinkedIn", "SEEK", "Indeed", "Glassdoor", "StepStone", "Google", "We Work Remotely", "ZipRecruiter", "Monster", "Naukri", "GulfTalent", "Bayt", "Jooble"];
+      const knownSources = ["LinkedIn", "SEEK", "Indeed", "Glassdoor", "StepStone", "Google", "We Work Remotely", "ZipRecruiter", "Monster", "Naukri", "GulfTalent", "Bayt", "Jooble", "RemoteOK"];
       if (!knownSources.includes(last)) {
         company = last;
         jobTitle = parts[0].trim();
@@ -230,8 +284,8 @@ function parseJob(item: any, country: string): RemoteJob | null {
   }
 
   // Clean source tag from title
-  jobTitle = jobTitle.replace(/\s*[|\-–—]\s*(LinkedIn|SEEK|Indeed|Glassdoor|StepStone|Google|We Work Remotely|ZipRecruiter|Monster|Naukri|GulfTalent|Bayt|Jooble).*$/i, "").trim();
-  if (!jobTitle || jobTitle.length < 5) return null;
+  jobTitle = jobTitle.replace(/\s*[|\-–—]\s*(LinkedIn|SEEK|Indeed|Glassdoor|StepStone|Google|We Work Remotely|ZipRecruiter|Monster|Naukri|GulfTalent|Bayt|Jooble|RemoteOK).*$/i, "").trim();
+  if (!jobTitle || jobTitle.length < 8) return null;
 
   // Detect location from snippet
   const locMatch = checkText.match(/\b(USA|United States|Germany|UK|United Kingdom|Australia|Canada|Remote|Hybrid|Worldwide|Anywhere|Global)\b/i);
@@ -250,6 +304,7 @@ export async function POST(req: NextRequest) {
 
     const allJobs: RemoteJob[] = [];
     const seenUrls = new Set<string>();
+    const seenTitles = new Set<string>();
 
     const queries: Array<{ q: string; gl: string; country: string }> = [];
     if (singleCountry) {
@@ -263,7 +318,7 @@ export async function POST(req: NextRequest) {
       for (const q of GLOBAL_QUERIES) queries.push({ q, gl: "us", country: "Global" });
     }
 
-    console.log(`[remote-search-v3] Running ${queries.length} natural queries`);
+    console.log(`[remote-search-v4] Running ${queries.length} queries (role-specific)`);
 
     const BATCH = 3;
     for (let i = 0; i < queries.length; i += BATCH) {
@@ -276,14 +331,18 @@ export async function POST(req: NextRequest) {
             for (const item of items) {
               const parsed = parseJob(item, country);
               if (parsed && parsed.url && !seenUrls.has(parsed.url)) {
+                // Dedup by normalized title
+                const normTitle = normalizeTitle(parsed.title);
+                if (seenTitles.has(normTitle)) continue;
                 seenUrls.add(parsed.url);
+                seenTitles.add(normTitle);
                 jobs.push(parsed);
               }
             }
-            console.log(`[remote-search-v3] "${q.slice(0, 50)}..." -> ${jobs.length} jobs`);
+            console.log(`[remote-search-v4] "${q.slice(0, 50)}..." -> ${jobs.length} jobs`);
             return jobs;
           } catch (err: any) {
-            console.error(`[remote-search-v3] Query failed:`, err.message);
+            console.error(`[remote-search-v4] Query failed:`, err.message);
             return [];
           }
         }),
@@ -297,10 +356,10 @@ export async function POST(req: NextRequest) {
     // Sort by source priority
     allJobs.sort((a, b) => (SOURCE_PRIORITY[a.source] ?? 99) - (SOURCE_PRIORITY[b.source] ?? 99));
 
-    console.log(`[remote-search-v3] Total: ${allJobs.length} unique remote jobs`);
+    console.log(`[remote-search-v4] Total: ${allJobs.length} unique remote jobs after dedup`);
     return NextResponse.json({ success: true, jobs: allJobs, total: allJobs.length });
   } catch (err: any) {
-    console.error("[remote-search-v3] Error:", err);
+    console.error("[remote-search-v4] Error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

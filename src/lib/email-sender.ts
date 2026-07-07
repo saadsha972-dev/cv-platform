@@ -2,10 +2,19 @@
  * Email Sender Module
  * ===================
  * Sends HTML email digests with shortlisted job postings.
- * Uses nodemailer with SMTP (Gmail-compatible).
+ * Tries multiple backends in order:
+ *   1. Resend (RESEND_API_KEY) — easiest, free 100 emails/day
+ *   2. Nodemailer SMTP (SMTP_USER + SMTP_PASS) — for Gmail/etc
  *
- * NOTE: For Gmail, the user needs to set up an App Password
- * (https://myaccount.google.com/apppasswords) and store it in SMTP_PASS env var.
+ * RESEND SETUP (recommended):
+ *   1. Sign up at https://resend.com (free tier = 100 emails/day)
+ *   2. Get API key from https://resend.com/api-keys
+ *   3. Set RESEND_API_KEY in Vercel Environment Variables
+ *   4. Verify your sender domain or use the free onboarding domain
+ *
+ * SMTP SETUP (alternative, e.g. Gmail):
+ *   1. Create Gmail App Password: https://myaccount.google.com/apppasswords
+ *   2. Set SMTP_USER (your Gmail) and SMTP_PASS (the App Password)
  */
 
 import nodemailer from "nodemailer";
@@ -27,35 +36,84 @@ export interface SendDigestParams {
   recipientName?: string;
 }
 
-const getTransporter = () => {
+// ---------------------------------------------------------------------------
+// METHOD 1: Resend API (recommended — no App Password needed)
+// ---------------------------------------------------------------------------
+async function sendViaResend(params: SendDigestParams): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return { success: false, error: "RESEND_API_KEY not set" };
+  }
+
+  const recipientName = params.recipientName || params.recipient.split("@")[0];
+  const html = buildEmailHtml(params.jobs, recipientName);
+  const subject = `Your Job Match Digest — ${params.jobs.length} opportunities found`;
+  const fromEmail = process.env.RESEND_FROM || "onboarding@resend.dev";
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      from: `CV Platform <${fromEmail}>`,
+      to: [params.recipient],
+      subject,
+      html,
+    }),
+  });
+
+  const data = await res.json() as any;
+
+  if (!res.ok) {
+    return { success: false, error: `Resend API ${res.status}: ${data.message || data.error?.message || JSON.stringify(data).slice(0, 200)}` };
+  }
+
+  return { success: true, messageId: data.id };
+}
+
+// ---------------------------------------------------------------------------
+// METHOD 2: Nodemailer SMTP (Gmail / custom SMTP)
+// ---------------------------------------------------------------------------
+async function sendViaSmtp(params: SendDigestParams): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const user = process.env.SMTP_USER || "";
   const pass = process.env.SMTP_PASS || "";
 
   if (!pass) {
-    const err = new Error(
-      "SMTP_PASS environment variable is not set. To enable email alerts, set up a Gmail App Password at https://myaccount.google.com/apppasswords and set SMTP_PASS (and SMTP_USER for the sender email) in your Vercel environment variables."
-    );
-    (err as any).code = "SMTP_NOT_CONFIGURED";
-    throw err;
+    return { success: false, error: "SMTP_PASS not set" };
   }
 
-  return nodemailer.createTransport({
+  const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || "smtp.gmail.com",
     port: parseInt(process.env.SMTP_PORT || "465"),
     secure: true,
     auth: { user, pass },
   });
-};
 
+  const recipientName = params.recipientName || params.recipient.split("@")[0];
+  const html = buildEmailHtml(params.jobs, recipientName);
+  const subject = `Your Job Match Digest — ${params.jobs.length} opportunities found`;
+
+  const info = await transporter.sendMail({
+    from: `"CV Platform" <${user}>`,
+    to: params.recipient,
+    subject,
+    html,
+  });
+
+  return { success: true, messageId: info.messageId };
+}
+
+// ---------------------------------------------------------------------------
+// HTML TEMPLATE
+// ---------------------------------------------------------------------------
 const buildEmailHtml = (jobs: EmailJobEntry[], recipientName: string): string => {
-  // Group jobs by CV variant
   const grouped: Record<string, EmailJobEntry[]> = {};
   for (const job of jobs) {
     if (!grouped[job.cvVariant]) grouped[job.cvVariant] = [];
     grouped[job.cvVariant].push(job);
   }
-
-  // Sort each group by match score descending
   for (const variant of Object.keys(grouped)) {
     grouped[variant].sort((a, b) => b.matchScore - a.matchScore);
   }
@@ -117,26 +175,36 @@ const escapeHtml = (s: string): string =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
+// ---------------------------------------------------------------------------
+// COMPOSITE SENDER — tries Resend first, then SMTP
+// ---------------------------------------------------------------------------
 export const sendJobDigestEmail = async (params: SendDigestParams): Promise<{ success: boolean; messageId?: string; error?: string }> => {
   if (!params.jobs.length) {
     return { success: false, error: "No jobs to send" };
   }
 
-  try {
-    const transporter = getTransporter();
-    const recipientName = params.recipientName || params.recipient.split("@")[0];
-    const html = buildEmailHtml(params.jobs, recipientName);
-    const subject = `Your Job Match Digest — ${params.jobs.length} opportunities found`;
+  const errors: string[] = [];
 
-    const info = await transporter.sendMail({
-      from: `"CV Platform" <${process.env.SMTP_USER}>`,
-      to: params.recipient,
-      subject,
-      html,
-    });
+  // Try 1: Resend API
+  const resendResult = await sendViaResend(params);
+  if (resendResult.success) return resendResult;
+  errors.push(`Resend: ${resendResult.error || "failed"}`);
 
-    return { success: true, messageId: info.messageId };
-  } catch (err: any) {
-    return { success: false, error: err.message || String(err) };
+  // Try 2: SMTP
+  const smtpResult = await sendViaSmtp(params);
+  if (smtpResult.success) return smtpResult;
+  errors.push(`SMTP: ${smtpResult.error || "failed"}`);
+
+  // All failed
+  const hasResend = !!process.env.RESEND_API_KEY;
+  const hasSmtp = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
+
+  let hint: string;
+  if (!hasResend && !hasSmtp) {
+    hint = "No email backend configured. Add RESEND_API_KEY (get one free at https://resend.com/api-keys) or SMTP_USER + SMTP_PASS (Gmail App Password) in Vercel Settings → Environment Variables.";
+  } else {
+    hint = `All email methods failed:\n${errors.join("\n")}`;
   }
+
+  return { success: false, error: hint };
 };
