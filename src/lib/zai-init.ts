@@ -1,11 +1,14 @@
 /**
- * LLM Client — Groq API with retry + fallback
- * ===============================================
- * Uses Groq's free API with automatic retry on 429 rate limits.
- * Falls back to a lighter model when rate-limited.
+ * LLM Client — z.ai Platform API (primary) + Groq API (fallback)
+ * =================================================================
+ * Uses the z.ai internal platform API by default (no API key needed
+ * if ZAI_TOKEN env var is set). Falls back to Groq free API if available.
  *
- * Set GROQ_API_KEY in Vercel Environment Variables.
- * Get a free key at https://console.groq.com/keys
+ * ENV VARS (set in Vercel Settings → Environment Variables):
+ * - ZAI_TOKEN: JWT token from z.ai platform (primary, no rate limits)
+ * - GROQ_API_KEY: Groq API key (fallback, free at console.groq.com)
+ *
+ * At least ONE of these must be set for AI tailoring to work.
  */
 
 interface ChatCompletionResponse {
@@ -23,28 +26,55 @@ interface ZaiLike {
   };
 }
 
-const GROQ_BASE = "https://api.groq.com/openai/v1";
+// --- z.ai Platform API Client ---
+function createZaiPlatformClient(token: string): ZaiLike {
+  const ZAI_BASE = "https://internal-api.z.ai/v1";
 
-// Models ordered by preference (fastest + highest rate limit first)
-const MODELS = [
-  "llama-3.1-8b-instant",   // Very fast, highest rate limit on free tier
-  "llama3-70b-8192",        // Good quality, moderate rate limit
-  "llama-3.3-70b-versatile", // Best quality, lowest rate limit
+  const chatCreate = async (body: any): Promise<ChatCompletionResponse> => {
+    const res = await fetch(`${ZAI_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer Z.ai`,
+        "X-Z-AI-From": "Z",
+        "X-Token": token,
+      },
+      body: JSON.stringify({ ...body, thinking: body.thinking || { type: "disabled" } }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`z.ai API error ${res.status}: ${errText.slice(0, 200)}`);
+    }
+
+    return res.json();
+  };
+
+  const invoke = async (name: string, _body: any) => {
+    if (name === "web_search") return [];
+    throw new Error(`Unknown function: ${name}`);
+  };
+
+  return { chat: { completions: { create: chatCreate } }, functions: { invoke } };
+}
+
+// --- Groq API Client (fallback) ---
+const GROQ_BASE = "https://api.groq.com/openai/v1";
+const GROQ_MODELS = [
+  "llama-3.1-8b-instant",
+  "llama3-70b-8192",
+  "llama-3.3-70b-versatile",
 ];
 
-// --- Retry logic ---
 async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 2): Promise<Response> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const res = await fetch(url, options);
       if (res.status !== 429) return res;
-
-      // Rate limited — wait with exponential backoff
       const waitMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 6000);
       console.warn(`[groq] Rate limited (429), retry ${attempt + 1}/${maxRetries} in ${Math.round(waitMs)}ms...`);
       await new Promise((r) => setTimeout(r, waitMs));
     } catch (fetchErr: any) {
-      // Network error — retry once
       if (attempt < maxRetries) {
         await new Promise((r) => setTimeout(r, 1000));
         continue;
@@ -52,27 +82,15 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 2)
       throw fetchErr;
     }
   }
-  // Return the last response even if still 429
   return fetch(url, options);
 }
 
-// --- Is this error a rate limit or auth error? ---
-function isTransientError(status: number, msg: string): boolean {
-  if (status === 429) return true;
-  if (status === 403 && msg.includes("Forbidden")) return false; // Permanent — don't retry
-  if (status === 401) return false; // Permanent
-  return status >= 500; // Server error — retry
-}
-
-// --- Groq client with model fallback ---
-const createClient = (apiKey: string): ZaiLike => {
+function createGroqClient(apiKey: string): ZaiLike {
   const chatCreate = async (body: any): Promise<ChatCompletionResponse> => {
     const requestedModel = body.model;
-
-    // Try models in order (skip the requested one if it's in the list, try it first)
     const modelsToTry = requestedModel
-      ? [requestedModel, ...MODELS.filter((m) => m !== requestedModel)]
-      : [...MODELS];
+      ? [requestedModel, ...GROQ_MODELS.filter((m) => m !== requestedModel)]
+      : [...GROQ_MODELS];
 
     let lastError = "";
     for (const model of modelsToTry) {
@@ -86,42 +104,28 @@ const createClient = (apiKey: string): ZaiLike => {
           body: JSON.stringify({ ...body, model }),
         });
 
-        if (res.ok) {
-          return res.json();
-        }
+        if (res.ok) return res.json();
 
         const errText = await res.text().catch(() => "");
         lastError = `Groq ${res.status}: ${errText.slice(0, 200)}`;
 
-        // If 429, try next model
         if (res.status === 429) {
-          console.warn(`[groq] Model ${model} rate-limited, trying next model...`);
+          console.warn(`[groq] Model ${model} rate-limited, trying next...`);
           continue;
         }
-
-        // 401/403 = permanent auth error, don't bother trying other models
         if (res.status === 401 || res.status === 403) {
-          throw new Error(`Groq API key is invalid or disabled. Please update GROQ_API_KEY in Vercel Settings → Environment Variables.`);
+          throw new Error(`Groq API key is invalid or disabled.`);
         }
-
-        // Other server error — try next model
         console.warn(`[groq] Model ${model} error ${res.status}, trying next...`);
       } catch (err: any) {
-        // If it's a permanent auth error, re-throw immediately
         if (err.message?.includes("invalid or disabled")) throw err;
-        // If it's a rate limit error, try next model
-        if (err.message?.includes("429")) {
-          console.warn(`[groq] Model ${model} failed with 429, trying next...`);
-          lastError = err.message;
-          continue;
-        }
-        throw err;
+        lastError = err.message;
+        continue;
       }
     }
 
-    // All models failed
     throw new Error(lastError.includes("429")
-      ? "Groq is temporarily rate-limited. Your CV will be generated with the base template — AI tailoring will resume automatically in a few minutes."
+      ? "Groq is temporarily rate-limited."
       : lastError || "All Groq models unavailable.");
   };
 
@@ -131,20 +135,67 @@ const createClient = (apiKey: string): ZaiLike => {
   };
 
   return { chat: { completions: { create: chatCreate } }, functions: { invoke } };
-};
+}
 
-// --- Singleton ---
+// --- Singleton with auto-detection ---
 let _instance: ZaiLike | null = null;
+let _backend: string | null = null;
 
 export const createZai = async (): Promise<ZaiLike> => {
   if (_instance) return _instance;
 
-  const apiKey = process.env.GROQ_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("GROQ_API_KEY not set. Add it in Vercel \u2192 Settings \u2192 Environment Variables.");
+  // Priority 1: z.ai platform API (via ZAI_TOKEN env var)
+  const zaiToken = process.env.ZAI_TOKEN;
+  if (zaiToken) {
+    _instance = createZaiPlatformClient(zaiToken);
+    _backend = "z.ai";
+    console.log("[llm] Using z.ai platform API as LLM backend");
+    return _instance;
   }
 
-  _instance = createClient(apiKey);
-  return _instance;
+  // Priority 2: Groq API (via GROQ_API_KEY env var)
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    _instance = createGroqClient(groqKey);
+    _backend = "groq";
+    console.log("[llm] Using Groq API as LLM backend");
+    return _instance;
+  }
+
+  // Priority 3: Check for local z.ai config file (development only)
+  try {
+    const fs = await import("fs");
+    const os = await import("os");
+    const path = await import("path");
+    const configPaths = [
+      path.join(process.cwd(), ".z-ai-config"),
+      path.join(os.homedir(), ".z-ai-config"),
+      "/etc/.z-ai-config",
+    ];
+    for (const configPath of configPaths) {
+      try {
+        const configStr = fs.readFileSync(configPath, "utf8");
+        const config = JSON.parse(configStr);
+        if (config.token) {
+          _instance = createZaiPlatformClient(config.token);
+          _backend = "z.ai-local";
+          console.log(`[llm] Using z.ai platform API from local config: ${configPath}`);
+          return _instance;
+        }
+      } catch {
+        // continue to next path
+      }
+    }
+  } catch {
+    // fs import might fail in some environments, that's ok
+  }
+
+  // No LLM backend available
+  throw new Error(
+    "No LLM backend configured. Set ZAI_TOKEN or GROQ_API_KEY in Vercel Settings → Environment Variables. " +
+    "Get a free Groq key at https://console.groq.com/keys"
+  );
 };
+
+/** Returns which backend is active: 'z.ai', 'z.ai-local', 'groq', or null */
+export const getLlmBackend = (): string | null => _backend;

@@ -11,13 +11,10 @@
  * silently returning the original unmodified CV content.
  */
 
-import { createZai } from "./zai-init";
+import { createZai, getLlmBackend } from "./zai-init";
 import { CvData } from "./cv-data";
 
 const getZai = createZai;
-
-// Models to use when retrying on JSON parse failures (skip the 8B model)
-const FALLBACK_MODELS = ["llama3-70b-8192", "llama-3.3-70b-versatile"];
 
 // ---------------------------------------------------------------------------
 // ROBUST LLM CALL WITH JSON RETRY
@@ -36,56 +33,36 @@ async function callLlmAndParseJson<T>(
   label: string,
 ): Promise<T> {
   const zai = await getZai();
+  const backend = getLlmBackend();
+  const maxAttempts = backend === "groq" ? 4 : 3;
   let lastError = "";
 
-  // Attempt 1: default model (likely 8B)
-  try {
-    const response = await zai.chat.completions.create({
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-    });
-    const content = response.choices?.[0]?.message?.content?.trim() || "";
-    const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-    const result = parseAndValidate(cleaned);
-    if (result) {
-      console.log(`[llm-tailor] ${label}: parsed OK on default model (${content.length} chars)`);
-      return result;
-    }
-    lastError = `Default model returned invalid JSON. First 200 chars: ${cleaned.slice(0, 200)}`;
-    console.warn(`[llm-tailor] ${label}: default model returned invalid JSON, retrying with fallback models...`);
-  } catch (err: any) {
-    lastError = err.message || "Unknown error";
-    console.warn(`[llm-tailor] ${label}: default model call failed (${lastError.slice(0, 100)}), retrying...`);
-  }
-
-  // Attempt 2+: try each fallback model with explicit model parameter
-  for (const model of FALLBACK_MODELS) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      console.log(`[llm-tailor] ${label}: retrying with model ${model}...`);
-      const response = await zai.chat.completions.create({
-        messages,
-        temperature,
-        max_tokens: maxTokens,
-        model, // Force this specific model
-      });
+      // For Groq: try different models on retry. For z.ai: retry same model.
+      const body: any = { messages, temperature, max_tokens: maxTokens };
+      if (backend === "groq" && attempt === 2) body.model = "llama3-70b-8192";
+      if (backend === "groq" && attempt === 3) body.model = "llama-3.3-70b-versatile";
+      if (backend === "groq" && attempt === 4) body.model = "llama3-70b-8192";
+
+      const response = await zai.chat.completions.create(body);
       const content = response.choices?.[0]?.message?.content?.trim() || "";
       const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
       const result = parseAndValidate(cleaned);
       if (result) {
-        console.log(`[llm-tailor] ${label}: parsed OK on ${model} (${content.length} chars)`);
+        console.log(`[llm-tailor] ${label}: parsed OK on attempt ${attempt}/${maxAttempts} (${content.length} chars, backend: ${backend})`);
         return result;
       }
-      lastError = `${model} returned invalid JSON. First 200 chars: ${cleaned.slice(0, 200)}`;
-      console.warn(`[llm-tailor] ${label}: ${model} also returned invalid JSON...`);
+      lastError = `Invalid JSON. First 200 chars: ${cleaned.slice(0, 200)}`;
+      console.warn(`[llm-tailor] ${label}: attempt ${attempt} returned invalid JSON${attempt < maxAttempts ? ", retrying..." : ""}`);
     } catch (err: any) {
       lastError = err.message || "Unknown error";
-      console.warn(`[llm-tailor] ${label}: ${model} call failed (${lastError.slice(0, 100)})...`);
+      console.warn(`[llm-tailor] ${label}: attempt ${attempt} failed (${lastError.slice(0, 100)})${attempt < maxAttempts ? ", retrying..." : ""}`);
     }
   }
 
-  // All attempts failed — throw to signal the caller
-  throw new Error(`AI ${label} failed after all retry attempts. Last error: ${lastError.slice(0, 300)}`);
+  // All attempts failed
+  throw new Error(`AI ${label} failed after ${maxAttempts} attempts (backend: ${backend}). Last error: ${lastError.slice(0, 300)}`);
 }
 
 // ---------------------------------------------------------------------------
