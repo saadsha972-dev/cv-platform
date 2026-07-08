@@ -1,322 +1,134 @@
-/**
- * POST /api/search-run
- * Body: { profileId?: string } — if profileId omitted, runs all active profiles
- * Triggers a job search run, scores matches, and saves results.
- * 
- * v2: Inline Serper calls (no tbs filter!) for reliability.
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { CV_VARIANTS } from "@/lib/cv-data";
-
+import { CV_VARIANTS, getCvBySlug } from "@/lib/cv-data";
+import { scoreJobMatch } from "@/lib/llm-tailor";
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 120;
 
-// ---------------------------------------------------------------------------
-// COUNTRY → GEO CODE
-// ---------------------------------------------------------------------------
-const COUNTRY_GEO: Record<string, string> = {
-  "usa": "us", "united states": "us", "germany": "de",
-  "united kingdom": "uk", "uk": "uk", "australia": "au",
-  "canada": "ca", "qatar": "qa", "uae": "ae",
-  "saudi arabia": "sa", "kuwait": "kw", "oman": "om",
-  "pakistan": "pk", "singapore": "sg", "new zealand": "nz",
-};
+const SERPER_KEY = process.env.SERPER_API_KEY || "89280a05e2a42179789766db50570d66f5d52b1e";
+const MAX_AGE_DAYS = 21; // Hard max: 3 weeks
 
-// ---------------------------------------------------------------------------
-// INLINE SERPER SEARCH — no tbs, no complex module dependency
-// ---------------------------------------------------------------------------
-interface RawJob {
-  title: string;
-  company: string;
-  location: string;
-  url: string;
-  description: string;
-  source: string;
-}
-
-async function serperFetch(query: string, apiKey: string, gl: string): Promise<any[]> {
+async function serperSearch(query: string, gl: string, num = 12): Promise<any[]> {
+  // Use qdr:w (past week) — much more reliable than qdr:m for freshness
   const res = await fetch("https://google.serper.dev/search", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
-    body: JSON.stringify({ q: query, num: 15, hl: "en", gl }),
+    headers: { "Content-Type": "application/json", "X-API-KEY": SERPER_KEY },
+    body: JSON.stringify({ q: query, num, hl: "en", gl, tbs: "qdr:w" }),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Serper ${res.status}: ${text.slice(0, 150)}`);
-  }
-  const data = await res.json();
-  return data.organic || [];
+  if (!res.ok) throw new Error(`Serper ${res.status}`);
+  return (await res.json()).organic || [];
 }
 
-function parseJob(item: any, fallbackLocation: string): RawJob | null {
-  const url = item.link || "";
-  const rawTitle = item.title || "";
+/** Post-fetch: reject results older than MAX_AGE_DAYS using Serper's date field or snippet date hints */
+function isFresh(item: any): boolean {
+  if (item.date) {
+    try {
+      const d = new Date(item.date);
+      const ageMs = Date.now() - d.getTime();
+      return ageMs <= MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    } catch { /* ignore parse errors */ }
+  }
   const snippet = item.snippet || "";
-
-  // Quick spam filter
-  const check = `${rawTitle} ${url} ${snippet}`.toLowerCase();
-  if (/training course|certification training|lead auditor course|iso 9001 training|course schedule/i.test(check)) return null;
-  if (/\.pdf$/i.test(url) || /facebook\.com|slideserve\.com|learnerspoint\.org/i.test(check)) return null;
-  if (/salary.*guide|how to become|what does a|job description template/i.test(check)) return null;
-  if (/^\d+\+?\s/i.test(rawTitle)) return null;
-  if (/jobs in all|browse jobs|search jobs/i.test(rawTitle)) return null;
-
-  // LinkedIn category pages
-  if (url.includes("linkedin.com/jobs/") && !url.includes("/jobs/view/") && !rawTitle.toLowerCase().includes("hiring")) return null;
-
-  // Parse title + company
-  let jobTitle = rawTitle;
-  let company = "Not specified";
-
-  const hiring = rawTitle.match(/^(.+?)\s+hiring\s+(.+?)(?:\s+in\s+.+)?$/i);
-  if (hiring) {
-    company = hiring[1].trim();
-    jobTitle = hiring[2].trim();
-  } else {
-    const parts = rawTitle.split(/\s+[|\-–—]\s+/);
-    if (parts.length >= 2) {
-      const last = parts[parts.length - 1].trim();
-      if (last && !["LinkedIn", "SEEK", "Indeed", "Glassdoor", "Google", "StepStone", "Naukrigulf", "GulfTalent", "Jooble"].includes(last)) {
-        company = last;
-        jobTitle = parts[0].trim();
-      }
-    }
+  const text = `${item.title || ""} ${snippet}`;
+  const yearMatch = text.match(/\b(20\d{2})\b/);
+  if (yearMatch) {
+    const year = parseInt(yearMatch[1]);
+    const currentYear = new Date().getFullYear();
+    if (year < currentYear - 1 || year > currentYear) return false;
   }
-
-  // Clean source tag from title
-  jobTitle = jobTitle.replace(/\s*[|\-–—]\s*(LinkedIn|SEEK|Indeed|Glassdoor|StepStone|Google).*$/i, "").trim();
-  if (!jobTitle || jobTitle.length < 4) return null;
-
-  // Detect source
-  let source = "google";
-  if (url.includes("linkedin.com")) source = "linkedin";
-  else if (url.includes("indeed.com")) source = "indeed";
-  else if (url.includes("glassdoor.com")) source = "glassdoor";
-  else if (url.includes("naukrigulf.com") || url.includes("naukri.com")) source = "naukri";
-  else if (url.includes("gulftalent.com")) source = "gulftalent";
-  else if (url.includes("bayt.com")) source = "bayt";
-  else if (url.includes("rozee.pk")) source = "rozee";
-
-  return {
-    title: jobTitle,
-    company,
-    location: fallbackLocation,
-    url,
-    description: snippet.slice(0, 800),
-    source,
-  };
+  const daysAgoMatch = snippet.match(/(\d+)\s+days?\s+ago/i);
+  if (daysAgoMatch) {
+    const days = parseInt(daysAgoMatch[1]);
+    return days <= MAX_AGE_DAYS;
+  }
+  return true;
 }
 
-// ---------------------------------------------------------------------------
-// INLINE JOB SEARCH — 2-3 queries per profile, no tbs, fast
-// ---------------------------------------------------------------------------
-interface SearchResult { jobs: RawJob[]; queryErrors: string[]; queryCount: number }
-
-async function searchJobsForProfile(keywords: string[], countries: string[], excludeKeywords: string[]): Promise<SearchResult> {
-  const apiKey = process.env.SERPER_API_KEY || "89280a05e2a42179789766db50570d66f5d52b1e";
-  const primaryKw = keywords[0];
-  const secondKw = keywords[1];
-
-  const queries: Array<{ q: string; gl: string }> = [];
-
-  // 2 countries max for speed
-  const countriesToSearch = countries.slice(0, 2);
-
-  for (const country of countriesToSearch) {
-    const gl = COUNTRY_GEO[country.toLowerCase().trim()] || "us";
-    // Simple natural queries — NO quotes, NO site: (blocked on Serper free tier)
-    queries.push({ q: `${primaryKw} jobs ${country} hiring`, gl });
-    queries.push({ q: `${primaryKw} jobs ${country} -training -course`, gl });
-  }
-
-  // Optional: second keyword for first country
-  if (secondKw && secondKw !== primaryKw) {
-    const gl = COUNTRY_GEO[countriesToSearch[0].toLowerCase().trim()] || "us";
-    queries.push({ q: `${secondKw} jobs ${countriesToSearch[0]} hiring`, gl });
-  }
-
-  console.log(`[search] Queries for ${primaryKw}: ${JSON.stringify(queries)}`);
-
-  const allJobs: RawJob[] = [];
-  const seenUrls = new Set<string>();
-  const exclude = excludeKeywords.map(k => k.toLowerCase());
-
-  // Execute all queries in parallel (max 6 queries = well within rate limit)
-  const queryErrors: string[] = [];
-  const results = await Promise.allSettled(
-    queries.map(async ({ q, gl }) => {
-      try {
-        const items = await serperFetch(q, apiKey, gl);
-        const jobs: RawJob[] = [];
-        for (const item of items) {
-          const job = parseJob(item, countriesToSearch[0]);
-          if (job && job.url && !seenUrls.has(job.url)) {
-            // Apply exclude keywords
-            const text = `${job.title} ${job.company} ${job.description}`.toLowerCase();
-            if (!exclude.some(k => text.includes(k))) {
-              seenUrls.add(job.url);
-              jobs.push(job);
-            }
-          }
-        }
-        console.log(`[search] "${q.slice(0, 50)}..." -> ${jobs.length} jobs`);
-        return jobs;
-      } catch (err: any) {
-        const errMsg = `${q.slice(0, 40)}: ${err.message}`;
-        console.error(`[search] Query failed: ${errMsg}`);
-        queryErrors.push(errMsg);
-        return [] as RawJob[];
-      }
-    })
-  );
-
-  for (const r of results) {
-    if (r.status === "fulfilled") allJobs.push(...r.value);
-  }
-
-  console.log(`[search] Total: ${allJobs.length} jobs for ${primaryKw}, errors: ${queryErrors.length}`);
-  return { jobs: allJobs, queryErrors, queryCount: queries.length };
-}
-
-
-// ---------------------------------------------------------------------------
-// KEYWORD-BASED SCORING (no LLM dependency)
-// ---------------------------------------------------------------------------
-function scoreByKeywords(cvSkills: string[], jobTitle: string, jobDesc: string, profileKeywords: string[]): { matchScore: number; rationale: string; topKeywords: string[] } {
-  const text = `${jobTitle} ${jobDesc}`.toLowerCase();
-  const allSkills = [...cvSkills, ...profileKeywords].map(s => s.toLowerCase());
-  const matched = allSkills.filter(s => text.includes(s) && s.length > 2);
-  const unique = [...new Set(matched)];
-  const score = Math.min(95, 25 + unique.length * 10);
-  return {
-    matchScore: score,
-    rationale: `Keyword match: ${unique.slice(0, 5).join(", ") || "partial match"}.`,
-    topKeywords: unique.slice(0, 5),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// MAIN HANDLER
-// ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
-  const t0 = Date.now();
   try {
     const body = await req.json().catch(() => ({}));
-    const { profileId, debug } = body as { profileId?: string; debug?: boolean };
+    const { profileId } = body as { profileId?: string };
 
-    const where = profileId ? { id: profileId, isActive: true } : { isActive: true };
-    const profiles = await db.searchProfile.findMany({
-      where,
-      include: { cvVariant: true },
-    });
+    const profiles = profileId
+      ? await db.searchProfile.findMany({ where: { id: profileId } })
+      : await db.searchProfile.findMany({});
 
-    if (!profiles.length) {
-      return NextResponse.json({ error: "No search profiles found" }, { status: 404 });
-    }
+    if (!profiles.length) return NextResponse.json({ needsSetup: true, error: "No search profiles. Run /api/seed first." });
 
     const results: Array<{ profile: string; found: number; saved: number }> = [];
-    const debugProfiles: any[] = [];
 
     for (const profile of profiles) {
-      console.log(`[search-run] Profile: ${profile.name}`);
+      const cv = getCvBySlug(profile.cvVariantId) || CV_VARIANTS[0];
+      const countries = profile.countries.split(",").map((c: string) => c.trim()).filter(Boolean);
+      const keywords = profile.keywords.split(",").map((k: string) => k.trim()).filter(Boolean);
+      const baseKw = keywords.slice(0, 3).join(" ");
 
-      const keywords = profile.keywords.split(",").map((s) => s.trim()).filter(Boolean);
-      const countries = profile.countries.split(",").map((s) => s.trim()).filter(Boolean);
-      const excludeKw = profile.excludeKeywords ? profile.excludeKeywords.split(",").map((s) => s.trim()).filter(Boolean) : [];
+      const glMap: Record<string, string> = { USA: "us", Germany: "de", UK: "uk", "United Kingdom": "uk", Australia: "au", Canada: "ca", Qatar: "qa", UAE: "ae", Pakistan: "pk" };
 
-      if (debug) {
-        debugProfiles.push({ name: profile.name, keywords, countries, kwCount: keywords.length, cCount: countries.length });
-      }
+      let found = 0;
+      for (const country of countries.slice(0, 3)) {
+        const gl = glMap[country] || "us";
 
-      // Get CV skills for scoring
-      const cv = CV_VARIANTS.find((c) => c.slug === profile.cvVariant.slug);
-      const cvSkills = cv
-        ? [...cv.sidebarPage1, ...cv.sidebarPage2].flatMap((s) => s.items.map((i) => (Array.isArray(i) ? i[0] : i)))
-        : [];
+        // Two complementary queries per country — freshness-focused
+        const queries = [
+          `${baseKw} "just posted" OR "hiring now" OR "new" ${country}`,
+          `${baseKw} manager OR director OR senior jobs ${country} 2025`,
+        ];
 
-      const searchResult = await searchJobsForProfile(keywords, countries, excludeKw);
-      const jobs = searchResult.jobs;
-      console.log(`[search-run] ${profile.name}: ${jobs.length} raw jobs (${Date.now() - t0}ms) (${searchResult.queryCount} queries, ${searchResult.queryErrors.length} errors)`);
+        for (const query of queries) {
+          try {
+            const items = await serperSearch(query, gl);
+            found += items.length;
 
-      if (debug) {
-        debugProfiles[debugProfiles.length - 1]._search = {
-          queryCount: searchResult.queryCount,
-          errorCount: searchResult.queryErrors.length,
-          errors: searchResult.queryErrors.slice(0, 3),
-        };
-      }
+            for (const item of items) {
+              if (!isFresh(item)) continue;
 
-      if (jobs.length === 0) {
-        results.push({ profile: profile.name, found: 0, saved: 0 });
-        await db.searchProfile.update({ where: { id: profile.id }, data: { lastRunAt: new Date() } });
-        continue;
-      }
+              const url = item.link || "";
+              const title = item.title || "";
+              const snippet = item.snippet || "";
+              const skipPatterns = [
+                /training course/i, /certification/i, /how to become/i, /salary/i,
+                /youtube\.com/i, /linkedin\.com\/learning/i, /browse jobs/i, /page \d/i,
+                /indeed\.com\/career/i, /glassdoor\.com\/Salary/i, /payscale\.com/i,
+                /wikipedia\.org/i, /reddit\.com/i, /quora\.com/i,
+              ];
+              if (skipPatterns.some((p) => p.test(`${title} ${snippet} ${url}`))) continue;
 
-      let saved = 0;
-      for (const job of jobs.slice(0, 30)) {
-        // Skip duplicates
-        const existing = await db.jobPosting.findFirst({
-          where: { url: job.url, searchProfileId: profile.id },
-        });
-        if (existing) continue;
+              const company = title.split(/\s+[|\-–—]\s+/).pop()?.trim() || "Not specified";
+              const jobTitle = title.replace(/\s*[|\-–—]\s+.*$/, "").trim();
+              if (jobTitle.length < 5) continue;
 
-        // Score by keyword matching (fast, no LLM needed)
-        const match = scoreByKeywords(cvSkills, job.title, job.description, keywords);
+              const existing = await db.jobPosting.findFirst({ where: { url } });
+              if (existing) continue;
 
-        const created = await db.jobPosting.create({
-          data: {
-            searchProfileId: profile.id,
-            title: job.title,
-            company: job.company,
-            location: job.location || "Not specified",
-            url: job.url,
-            description: job.description,
-            source: job.source,
-            matchScore: match.matchScore,
-            keywords: JSON.stringify(match.topKeywords),
-            status: "new",
-          },
-        });
+              const score = await scoreJobMatch(snippet, cv);
 
-        await db.jobMatch.create({
-          data: {
-            jobPostingId: created.id,
-            cvVariantId: profile.cvVariant.id,
-            matchScore: match.matchScore,
-            rationale: match.rationale,
-          },
-        }).catch(() => {});
-
-        saved++;
+              await db.jobPosting.create({
+                data: {
+                  title: jobTitle,
+                  company: company.replace(/^(LinkedIn|Indeed|Glassdoor|SEEK|Google)$/i, "Not specified"),
+                  location: country, url,
+                  description: snippet.slice(0, 1000),
+                  source: "serper", matchScore: score.score, status: "new",
+                  searchProfileId: profile.id,
+                },
+              });
+            }
+          } catch (err: any) {
+            console.error(`[search-run] ${profile.name}/${country}: ${err.message}`);
+          }
+        }
       }
 
       await db.searchProfile.update({ where: { id: profile.id }, data: { lastRunAt: new Date() } });
-      results.push({ profile: profile.name, found: jobs.length, saved });
+      const saved = await db.jobPosting.count({ where: { searchProfileId: profile.id, status: "new" } });
+      results.push({ profile: profile.name, found, saved });
     }
 
-    const totalSaved = results.reduce((sum, r) => sum + r.saved, 0);
-
-    const resp: any = totalSaved === 0
-      ? { success: false, error: `All ${results.reduce((s, r) => s + r.found, 0)} jobs found already exist in your list (duplicates). Try again in a few days for new postings, or adjust your search profile keywords.`, results, totalFound: results.reduce((s, r) => s + r.found, 0) }
-      : { success: true, results, totalFound: results.reduce((s, r) => s + r.found, 0), totalSaved };
-
-    if (debug) {
-      resp._timing = `${Date.now() - t0}ms`;
-      resp._profiles = profiles.length;
-      resp._profileData = debugProfiles;
-    }
-
-    return NextResponse.json(resp);
+    return NextResponse.json({ success: true, results });
   } catch (err: any) {
-    console.error("[search-run] Error:", err);
-    const msg = err.message || "Search failed";
-    const isKeyError = msg.includes("GROQ_API_KEY") || msg.includes("SERPER_API_KEY");
-    return NextResponse.json({
-      error: isKeyError
-        ? "API key not configured. Add SERPER_API_KEY in Vercel → Settings → Environment Variables."
-        : msg,
-    }, { status: 500 });
+    if (err.message?.includes("GROQ_API_KEY") || err.message?.includes("No LLM"))
+      return NextResponse.json({ needsSetup: true, error: "Add GROQ_API_KEY in Environment Variables." });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
