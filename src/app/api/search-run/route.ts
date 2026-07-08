@@ -6,10 +6,9 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 const SERPER_KEY = process.env.SERPER_API_KEY || "89280a05e2a42179789766db50570d66f5d52b1e";
-const MAX_AGE_DAYS = 21; // Hard max: 3 weeks
+const MAX_AGE_DAYS = 21;
 
 async function serperSearch(query: string, gl: string, num = 12): Promise<any[]> {
-  // Use qdr:w (past week) — much more reliable than qdr:m for freshness
   const res = await fetch("https://google.serper.dev/search", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-API-KEY": SERPER_KEY },
@@ -19,7 +18,6 @@ async function serperSearch(query: string, gl: string, num = 12): Promise<any[]>
   return (await res.json()).organic || [];
 }
 
-/** Post-fetch: reject results older than MAX_AGE_DAYS using Serper's date field or snippet date hints */
 function isFresh(item: any): boolean {
   if (item.date) {
     try {
@@ -55,6 +53,13 @@ export async function POST(req: NextRequest) {
 
     if (!profiles.length) return NextResponse.json({ needsSetup: true, error: "No search profiles. Run /api/seed first." });
 
+    // Auto-purge stale jobs (>21 days old) before searching to keep results fresh
+    try {
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - MAX_AGE_DAYS);
+      const purged = await db.jobPosting.deleteMany({ where: { createdAt: { lt: cutoff } } });
+      if (purged.count > 0) console.log(`[search-run] Purged ${purged.count} stale jobs older than ${MAX_AGE_DAYS} days`);
+    } catch {}
+
     const results: Array<{ profile: string; found: number; saved: number }> = [];
 
     for (const profile of profiles) {
@@ -69,7 +74,6 @@ export async function POST(req: NextRequest) {
       for (const country of countries.slice(0, 3)) {
         const gl = glMap[country] || "us";
 
-        // Two complementary queries per country — freshness-focused
         const queries = [
           `${baseKw} "just posted" OR "hiring now" OR "new" ${country}`,
           `${baseKw} manager OR director OR senior jobs ${country} 2025`,

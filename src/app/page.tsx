@@ -55,7 +55,7 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState("dashboard");
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      {/* ─── HEADER ─── */}
+      {/* HEADER */}
       <header className="border-b border-slate-200/80 bg-white/90 backdrop-blur-md sticky top-0 z-50 shadow-sm">
         <div className="container mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -106,7 +106,7 @@ export default function HomePage() {
 }
 
 // ---------------------------------------------------------------------------
-// DASHBOARD TAB — Enhanced
+// DASHBOARD TAB
 // ---------------------------------------------------------------------------
 function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
   const [stats, setStats] = useState({ cvVariants: 0, searchProfiles: 0, jobs: 0, newJobs: 0 });
@@ -146,7 +146,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
 
   return (
     <div className="space-y-6">
-      {/* ─── HERO ─── */}
+      {/* HERO */}
       <Card className="border-0 overflow-hidden relative">
         <div className="absolute inset-0 bg-gradient-to-br from-[#1b365d] via-[#162d50] to-[#0f2440]" />
         <div className="absolute inset-0 opacity-[0.07]" style={{ backgroundImage: "radial-gradient(circle at 25% 50%, #c9a84c 1px, transparent 1px), radial-gradient(circle at 75% 25%, #c9a84c 1px, transparent 1px)", backgroundSize: "40px 40px, 60px 60px" }} />
@@ -170,20 +170,20 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
         </CardContent>
       </Card>
 
-      {/* ─── STAT CARDS ─── */}
+      {/* STAT CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { icon: <FileText className="w-5 h-5" />, label: "CV Variants", value: stats.cvVariants, gradient: "from-[#1b365d] to-[#162d50]", iconBg: "#c9a84c" },
-          { icon: <Target className="w-5 h-5" />, label: "Search Profiles", value: stats.searchProfiles, gradient: "from-[#2d3748] to-[#1a202c]", iconBg: "#8c7853" },
-          { icon: <Briefcase className="w-5 h-5" />, label: "Jobs Found", value: stats.jobs, gradient: "from-[#1b365d] to-[#2d3748]", iconBg: "#c9a84c" },
-          { icon: <Zap className="w-5 h-5" />, label: "New Matches", value: stats.newJobs, gradient: stats.newJobs > 0 ? "from-emerald-600 to-emerald-800" : "from-slate-500 to-slate-700", iconBg: stats.newJobs > 0 ? "#fff" : "#94a3b8" },
+          { icon: <FileText className="w-5 h-5" />, label: "CV Variants", value: stats.cvVariants, gradient: "from-[#1b365d] to-[#162d50]", iconColor: "#c9a84c" },
+          { icon: <Target className="w-5 h-5" />, label: "Search Profiles", value: stats.searchProfiles, gradient: "from-[#2d3748] to-[#1a202c]", iconColor: "#8c7853" },
+          { icon: <Briefcase className="w-5 h-5" />, label: "Jobs Found", value: stats.jobs, gradient: "from-[#1b365d] to-[#2d3748]", iconColor: "#c9a84c" },
+          { icon: <Zap className="w-5 h-5" />, label: "New Matches", value: stats.newJobs, gradient: stats.newJobs > 0 ? "from-emerald-600 to-emerald-800" : "from-slate-500 to-slate-700", iconColor: stats.newJobs > 0 ? "#fff" : "#94a3b8" },
         ].map((s) => (
           <Card key={s.label} className="border-0 shadow-md hover:shadow-lg transition-shadow duration-300">
             <CardContent className="p-0">
               <div className={`bg-gradient-to-br ${s.gradient} rounded-2xl p-5 relative overflow-hidden`}>
                 <div className="absolute top-0 right-0 w-20 h-20 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
                 <div className="relative z-10">
-                  <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center mb-3" style={{ color: s.iconBg }}>{s.icon}</div>
+                  <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center mb-3" style={{ color: s.iconColor }}>{s.icon}</div>
                   <p className="text-white/60 text-xs font-medium uppercase tracking-wider">{s.label}</p>
                   <p className="text-white text-3xl font-bold mt-0.5">{s.value}</p>
                 </div>
@@ -193,9 +193,9 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
         ))}
       </div>
 
-      {/* ─── MAIN CONTENT GRID ─── */}
+      {/* MAIN CONTENT GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* ── RECENT JOB MATCHES (2/3) ── */}
+        {/* RECENT JOB MATCHES (2/3) */}
         <Card className="lg:col-span-2 border-slate-200/80 shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -222,7 +222,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
               </div>
             ) : (
               <div className="space-y-2">
-                {recentJobs.slice(0, 6).map((job, idx) => {
+                {recentJobs.slice(0, 6).map((job) => {
                   const scoreColor = job.matchScore >= 80 ? "text-emerald-600" : job.matchScore >= 60 ? "text-amber-600" : "text-slate-400";
                   const scoreBg = job.matchScore >= 80 ? "bg-emerald-50 border-emerald-200" : job.matchScore >= 60 ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200";
                   const barColor = job.matchScore >= 80 ? "bg-emerald-500" : job.matchScore >= 60 ? "bg-amber-500" : "bg-slate-300";
@@ -261,7 +261,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
           </CardContent>
         </Card>
 
-        {/* ── SIDEBAR (1/3) ── */}
+        {/* SIDEBAR (1/3) */}
         <div className="space-y-6">
           {/* Score Distribution */}
           <Card className="border-slate-200/80 shadow-sm">
@@ -446,7 +446,7 @@ function TailorTab() {
 }
 
 // ---------------------------------------------------------------------------
-// JOB HUNTER TAB — Enhanced
+// JOB HUNTER TAB
 // ---------------------------------------------------------------------------
 function HunterTab() {
   const { toast: _toast } = useToast();
@@ -466,7 +466,7 @@ function HunterTab() {
   }, []);
 
   const loadJobs = useCallback(async () => {
-    try { const res = await fetch(`/api/jobs?limit=200&minScore=${minScore}`); const data = await res.json(); setJobs(data.jobs || []); } catch {} finally { setLoadingJobs(false); }
+    try { const res = await fetch(`/api/jobs?limit=200&minScore=${minScore}&maxAgeDays=21`); const data = await res.json(); setJobs(data.jobs || []); } catch {} finally { setLoadingJobs(false); }
   }, [minScore]);
 
   useEffect(() => { loadProfiles(); }, [loadProfiles]);
@@ -477,7 +477,7 @@ function HunterTab() {
     try {
       const res = await fetch("/api/search-run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
       const data = await res.json();
-      if (data.success) { toastAny({ title: "Search complete!", description: data.results.map((r: any) => `${r.profile}: ${r.saved} saved`).join(" · ") }); loadJobs(); }
+      if (data.success) { toastAny({ title: "Search complete!", description: data.results.map((r: any) => `${r.profile}: ${r.saved} saved`).join(" \u00b7 ") }); loadJobs(); }
       else if (data.needsSetup) toastAny({ title: "Setup required", description: "Add GROQ_API_KEY and SERPER_API_KEY in Environment Variables.", variant: "destructive" });
       else throw new Error(data.error || "Search failed");
     } catch (err: any) { toastAny({ title: "Search failed", description: err.message, variant: "destructive" }); } finally { setSearching(false); }
@@ -623,7 +623,10 @@ function HunterTab() {
                         <span className="text-slate-300">&middot;</span>
                         <span className="text-slate-400">{job.searchProfile?.name}</span>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">{new Date(job.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <Clock className="w-3 h-3 text-slate-300" />
+                        <span className="text-[11px] text-slate-400">{(() => { const d = new Date(job.createdAt); const now = new Date(); const days = Math.floor((now.getTime() - d.getTime()) / 86400000); return days === 0 ? "Today" : days === 1 ? "Yesterday" : days <= 7 ? days + "d ago" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); })()}</span>
+                      </div>
                     </div>
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
                       <div className="flex items-center gap-2">
@@ -657,7 +660,7 @@ function HunterTab() {
 }
 
 // ---------------------------------------------------------------------------
-// REMOTE JOBS TAB — Enhanced
+// REMOTE JOBS TAB
 // ---------------------------------------------------------------------------
 const REMOTE_COUNTRIES = ["All Countries", "USA", "Germany", "United Kingdom", "Australia", "Canada"];
 

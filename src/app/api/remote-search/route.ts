@@ -76,7 +76,6 @@ const GLOBAL_QUERIES = [
 interface RemoteJob { title: string; company: string; location: string; url: string; description: string; source: string; country: string; postedDate?: string; }
 
 async function serperSearch(query: string, gl: string, num = 15): Promise<any[]> {
-  // qdr:w (past week) for much better freshness than qdr:m
   const res = await fetch("https://google.serper.dev/search", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-API-KEY": SERPER_KEY },
@@ -132,7 +131,6 @@ function parseJob(item: any, fallbackCountry: string): RemoteJob | null {
   jobTitle = jobTitle.replace(/\s*[|\-–—]\s*(LinkedIn|SEEK|Indeed|Glassdoor|Google).*$/i, "").trim();
   if (!jobTitle || jobTitle.length < 5) return null;
 
-  // Require role-level words OR "remote" in the title
   const jobWords = /manager|director|senior|lead|head|chief|vp|specialist|engineer|analyst|coordinator|consultant|officer|executive/i;
   if (!jobWords.test(jobTitle) && !/remote/i.test(jobTitle)) return null;
 
@@ -176,7 +174,6 @@ export async function POST(req: NextRequest) {
       if (i + BATCH < queries.length) await new Promise((r) => setTimeout(r, 600));
     }
 
-    // Sort: dedicated remote boards first, then mainstream job boards
     const sourcePriority: Record<string, number> = {
       "LinkedIn": 1, "Indeed": 2, "Glassdoor": 3, "ZipRecruiter": 4,
       "We Work Remotely": 5, "RemoteOK": 6, "JustRemote": 7, "Remote.co": 8, "FlexJobs": 9,
