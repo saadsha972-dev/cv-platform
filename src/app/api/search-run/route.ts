@@ -88,40 +88,45 @@ export async function POST(req: NextRequest) {
             found += items.length;
 
             for (const item of items) {
-              if (!isFresh(item)) continue;
+              try {
+                if (!isFresh(item)) continue;
 
-              const url = item.link || "";
-              const title = item.title || "";
-              const snippet = item.snippet || "";
-              const skipPatterns = [
-                /training course/i, /certification/i, /how to become/i, /salary/i,
-                /youtube\.com/i, /linkedin\.com\/learning/i, /browse jobs/i, /page \d/i,
-                /indeed\.com\/career/i, /glassdoor\.com\/Salary/i, /payscale\.com/i,
-                /wikipedia\.org/i, /reddit\.com/i, /quora\.com/i,
-                /\d+\s+\w+\s+jobs?\s+available/i, /jobs?\s+employment/i,
-                /hiring\s+now\s+on\s+indeed/i, /search\s+results/i,
-              ];
-              if (skipPatterns.some((p) => p.test(`${title} ${snippet} ${url}`))) continue;
+                const url = item.link || "";
+                const title = item.title || "";
+                const snippet = item.snippet || "";
+                const skipPatterns = [
+                  /training course/i, /certification/i, /how to become/i, /salary/i,
+                  /youtube\.com/i, /linkedin\.com\/learning/i, /browse jobs/i, /page \d/i,
+                  /indeed\.com\/career/i, /glassdoor\.com\/Salary/i, /payscale\.com/i,
+                  /wikipedia\.org/i, /reddit\.com/i, /quora\.com/i,
+                  /\d+\s+\w+\s+jobs?\s+available/i, /jobs?\s+employment/i,
+                  /hiring\s+now\s+on\s+indeed/i, /search\s+results/i,
+                ];
+                if (skipPatterns.some((p) => p.test(`${title} ${snippet} ${url}`))) continue;
 
-              const company = title.split(/\s+[|\-–—]\s+/).pop()?.trim() || "Not specified";
-              const jobTitle = title.replace(/\s*[|\-–—]\s+.*$/, "").trim();
-              if (jobTitle.length < 5) continue;
+                const company = title.split(/\s+[|\-–—]\s+/).pop()?.trim() || "Not specified";
+                const jobTitle = title.replace(/\s*[|\-–—]\s+.*$/, "").trim();
+                if (jobTitle.length < 5) continue;
 
-              const existing = await db.jobPosting.findFirst({ where: { url } });
-              if (existing) continue;
+                const existing = await db.jobPosting.findFirst({ where: { url } });
+                if (existing) continue;
 
-              const score = await scoreJobMatch(snippet, cv);
+                const score = await scoreJobMatch(cv, jobTitle, snippet, []);
 
-              await db.jobPosting.create({
-                data: {
-                  title: jobTitle,
-                  company: company.replace(/^(LinkedIn|Indeed|Glassdoor|SEEK|Google)$/i, "Not specified"),
-                  location: country, url,
-                  description: snippet.slice(0, 1000),
-                  source: "serper", matchScore: score.score, status: "new",
-                  searchProfileId: profile.id,
-                },
-              });
+                await db.jobPosting.create({
+                  data: {
+                    title: jobTitle,
+                    company: company.replace(/^(LinkedIn|Indeed|Glassdoor|SEEK|Google)$/i, "Not specified"),
+                    location: country, url,
+                    description: snippet.slice(0, 1000),
+                    source: "serper", matchScore: score.matchScore, status: "new",
+                    searchProfileId: profile.id,
+                  },
+                });
+              } catch (itemErr: any) {
+                // Per-job error isolation: don't let one bad item kill the entire batch
+                console.error(`[search-run] Skipping job "${item?.title?.slice(0, 60)}": ${itemErr.message?.slice(0, 150)}`);
+              }
             }
           } catch (err: any) {
             console.error(`[search-run] ${profile.name}/${country}: ${err.message}`);
