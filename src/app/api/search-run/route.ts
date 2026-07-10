@@ -12,7 +12,6 @@ const MAX_AGE_DAYS = 21;
 // FAST LOCAL KEYWORD SCORING (no LLM dependency for bulk search)
 // ---------------------------------------------------------------------------
 function quickScore(cv: CvData, jobTitle: string, snippet: string, profileKeywords: string[]): number {
-  // Build a set of all CV skills/keywords (lowercased)
   const cvText = [
     cv.roleTitle,
     cv.summary,
@@ -22,34 +21,31 @@ function quickScore(cv: CvData, jobTitle: string, snippet: string, profileKeywor
     .join(" ")
     .toLowerCase();
 
-  // Also include profile search keywords
   const allCvWords = new Set(cvText.split(/[\s,;|/()\-–—]+/).filter((w) => w.length > 2));
-  profileKeywords.forEach((k) => allCvWords.add(k.toLowerCase().trim()));
+  profileKeywords.forEach((k) => {
+    const lower = k.toLowerCase().trim();
+    if (lower.length > 1) allCvWords.add(lower);
+  });
 
   const jobText = `${jobTitle} ${snippet}`.toLowerCase();
-  const jobWords = new Set(jobText.split(/[\s,;|/()\-–—]+/).filter((w) => w.length > 2));
 
-  // Count overlapping significant words
   let matches = 0;
-  let checked = 0;
   for (const word of allCvWords) {
     if (jobText.includes(word)) {
       matches++;
     }
-    checked++;
   }
 
-  if (checked === 0) return 45;
+  const checked = allCvWords.size || 1;
+  const overlapPct = (matches / checked) * 100;
 
-  // Also check if job title words match CV skills (title match is worth more)
+  // Title match bonus
   const titleWords = jobTitle.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
   let titleMatches = 0;
   for (const tw of titleWords) {
     if (cvText.includes(tw)) titleMatches++;
   }
 
-  // Score: base overlap + title bonus, capped at 95
-  const overlapPct = (matches / checked) * 100;
   const titleBonus = titleMatches * 5;
   return Math.min(95, Math.round(overlapPct * 0.7 + titleBonus + 25));
 }
@@ -78,18 +74,16 @@ function isFresh(item: any): boolean {
       return ageMs <= MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
     } catch { /* ignore */ }
   }
-  // If no date, check snippet for age hints
   const snippet = item.snippet || "";
   const daysAgoMatch = snippet.match(/(\d+)\s+days?\s+ago/i);
   if (daysAgoMatch) {
     return parseInt(daysAgoMatch[1]) <= MAX_AGE_DAYS;
   }
-  // No date info at all — keep it (Serper qdr:w already filtered to past week)
   return true;
 }
 
 // ---------------------------------------------------------------------------
-// SKIP PATTERNS (non-job listings)
+// SKIP PATTERNS
 // ---------------------------------------------------------------------------
 const SKIP_PATTERNS = [
   /training course/i, /certification/i, /how to become/i, /salary guide/i,
@@ -106,6 +100,7 @@ const SKIP_PATTERNS = [
 // MAIN HANDLER
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
+  const _version = "v3-local-scoring";
   try {
     const body = await req.json().catch(() => ({}));
     const { profileId } = body as { profileId?: string };
@@ -122,10 +117,10 @@ export async function POST(req: NextRequest) {
       const purged = await db.jobPosting.deleteMany({
         where: { searchProfileId: { in: profileIds } },
       });
-      if (purged.count > 0) console.log(`[search-run] Purged ${purged.count} existing jobs for fresh search`);
+      if (purged.count > 0) console.log(`[search-run] Purged ${purged.count} existing jobs`);
     } catch {}
 
-    const results: Array<{ profile: string; found: number; saved: number }> = [];
+    const results: Array<{ profile: string; found: number; saved: number; skipped?: { stale: number; filtered: number; shortTitle: number; dup: number; error: number } }> = [];
 
     for (const profile of profiles) {
       const cv = getCvBySlug(profile.cvVariantId) || CV_VARIANTS[0];
@@ -141,11 +136,11 @@ export async function POST(req: NextRequest) {
 
       let found = 0;
       let saved = 0;
+      const skipped = { stale: 0, filtered: 0, shortTitle: 0, dup: 0, error: 0 };
 
       for (const country of countries.slice(0, 3)) {
         const gl = glMap[country] || "us";
 
-        // Build diverse queries for better coverage
         const kw1 = keywords[0] || baseKw;
         const kw2 = keywords[1] || "";
         const queries = [
@@ -165,25 +160,18 @@ export async function POST(req: NextRequest) {
                 const title = item.title || "";
                 const snippet = item.snippet || "";
 
-                // Freshness check
-                if (!isFresh(item)) continue;
+                if (!isFresh(item)) { skipped.stale++; continue; }
+                if (SKIP_PATTERNS.some((p) => p.test(`${title} ${snippet} ${url}`))) { skipped.filtered++; continue; }
 
-                // Skip non-job pages
-                if (SKIP_PATTERNS.some((p) => p.test(`${title} ${snippet} ${url}`))) continue;
-
-                // Parse title/company
                 const company = title.split(/\s+[|\-–—]\s+/).pop()?.trim() || "Not specified";
                 const jobTitle = title.replace(/\s*[|\-–—]\s+.*$/, "").trim();
-                if (jobTitle.length < 5) continue;
+                if (jobTitle.length < 5) { skipped.shortTitle++; continue; }
 
-                // Skip exact URL duplicates within this run
                 const existing = await db.jobPosting.findFirst({ where: { url } });
-                if (existing) continue;
+                if (existing) { skipped.dup++; continue; }
 
-                // Fast local keyword scoring (NO LLM call — instant)
                 const matchScore = quickScore(cv, jobTitle, snippet, keywords);
 
-                // Save to DB
                 await db.jobPosting.create({
                   data: {
                     title: jobTitle,
@@ -199,7 +187,8 @@ export async function POST(req: NextRequest) {
                 });
                 saved++;
               } catch (itemErr: any) {
-                console.error(`[search-run] Skip "${item?.title?.slice(0, 50)}": ${itemErr.message?.slice(0, 120)}`);
+                skipped.error++;
+                console.error(`[search-run] Skip: ${itemErr.message?.slice(0, 120)}`);
               }
             }
           } catch (err: any) {
@@ -209,10 +198,10 @@ export async function POST(req: NextRequest) {
       }
 
       await db.searchProfile.update({ where: { id: profile.id }, data: { lastRunAt: new Date() } });
-      results.push({ profile: profile.name, found, saved });
+      results.push({ profile: profile.name, found, saved, skipped });
     }
 
-    return NextResponse.json({ success: true, results });
+    return NextResponse.json({ success: true, _version, results });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
