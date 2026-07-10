@@ -86,24 +86,24 @@ async function serperSearch(query: string, gl: string, num = 15): Promise<any[]>
 }
 
 function isFresh(item: any): boolean {
-  if (item.date) {
-    try {
-      const d = new Date(item.date);
+  // Serper returns relative dates like "1 day ago", not parseable date strings
+  const dateStr = (item.date || "").toString().trim();
+  const relMatch = dateStr.match(/(\d+)\s+(hour|minute|day|week)s?\s+ago/i);
+  if (relMatch) {
+    const num = parseInt(relMatch[1]);
+    const unit = relMatch[2].toLowerCase();
+    if (unit === "minute") return true;
+    if (unit === "hour") return num <= MAX_AGE_DAYS * 24;
+    if (unit === "day") return num <= MAX_AGE_DAYS;
+    if (unit === "week") return num <= Math.ceil(MAX_AGE_DAYS / 7);
+    return true;
+  }
+  if (dateStr) {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
       const ageMs = Date.now() - d.getTime();
-      return ageMs <= MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
-    } catch { /* ignore */ }
-  }
-  const snippet = item.snippet || "";
-  const text = `${item.title || ""} ${snippet}`;
-  const yearMatch = text.match(/\b(20\d{2})\b/);
-  if (yearMatch) {
-    const year = parseInt(yearMatch[1]);
-    const currentYear = new Date().getFullYear();
-    if (year < currentYear - 1 || year > currentYear) return false;
-  }
-  const daysAgoMatch = snippet.match(/(\d+)\s+days?\s+ago/i);
-  if (daysAgoMatch) {
-    return parseInt(daysAgoMatch[1]) <= MAX_AGE_DAYS;
+      return ageMs >= 0 && ageMs <= MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    }
   }
   return true;
 }

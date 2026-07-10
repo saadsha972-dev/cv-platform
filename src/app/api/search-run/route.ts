@@ -121,7 +121,6 @@ const SKIP_PATTERNS = [
 // MAIN HANDLER
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
-  const _version = "v3-local-scoring";
   try {
     const body = await req.json().catch(() => ({}));
     const { profileId } = body as { profileId?: string };
@@ -157,7 +156,6 @@ export async function POST(req: NextRequest) {
 
       let found = 0;
       let saved = 0;
-      const skipped = { stale: 0, filtered: 0, shortTitle: 0, dup: 0, error: 0 };
 
       for (const country of countries.slice(0, 3)) {
         const gl = glMap[country] || "us";
@@ -181,15 +179,15 @@ export async function POST(req: NextRequest) {
                 const title = item.title || "";
                 const snippet = item.snippet || "";
 
-                if (!isFresh(item)) { skipped.stale++; continue; }
-                if (SKIP_PATTERNS.some((p) => p.test(`${title} ${snippet} ${url}`))) { skipped.filtered++; continue; }
+                if (!isFresh(item)) continue;
+                if (SKIP_PATTERNS.some((p) => p.test(`${title} ${snippet} ${url}`))) continue;
 
                 const company = title.split(/\s+[|\-–—]\s+/).pop()?.trim() || "Not specified";
                 const jobTitle = title.replace(/\s*[|\-–—]\s+.*$/, "").trim();
-                if (jobTitle.length < 5) { skipped.shortTitle++; continue; }
+                if (jobTitle.length < 5) continue;
 
                 const existing = await db.jobPosting.findFirst({ where: { url } });
-                if (existing) { skipped.dup++; continue; }
+                if (existing) continue;
 
                 const matchScore = quickScore(cv, jobTitle, snippet, keywords);
 
@@ -208,7 +206,6 @@ export async function POST(req: NextRequest) {
                 });
                 saved++;
               } catch (itemErr: any) {
-                skipped.error++;
                 console.error(`[search-run] Skip: ${itemErr.message?.slice(0, 120)}`);
               }
             }
@@ -219,10 +216,10 @@ export async function POST(req: NextRequest) {
       }
 
       await db.searchProfile.update({ where: { id: profile.id }, data: { lastRunAt: new Date() } });
-      results.push({ profile: profile.name, found, saved, skipped });
+      results.push({ profile: profile.name, found, saved });
     }
 
-    return NextResponse.json({ success: true, _version, results });
+    return NextResponse.json({ success: true, results });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
