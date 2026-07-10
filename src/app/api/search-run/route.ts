@@ -53,11 +53,14 @@ export async function POST(req: NextRequest) {
 
     if (!profiles.length) return NextResponse.json({ needsSetup: true, error: "No search profiles. Run /api/seed first." });
 
-    // Auto-purge stale jobs (>21 days old) before searching to keep results fresh
+    // Aggressive cleanup: remove ALL existing jobs for these profiles before searching
+    // This ensures every search shows truly fresh results, not accumulated stale data
     try {
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - MAX_AGE_DAYS);
-      const purged = await db.jobPosting.deleteMany({ where: { createdAt: { lt: cutoff } } });
-      if (purged.count > 0) console.log(`[search-run] Purged ${purged.count} stale jobs older than ${MAX_AGE_DAYS} days`);
+      const profileIds = profiles.map((p: any) => p.id);
+      const purged = await db.jobPosting.deleteMany({
+        where: { searchProfileId: { in: profileIds } },
+      });
+      if (purged.count > 0) console.log(`[search-run] Purged ${purged.count} existing jobs for fresh search`);
     } catch {}
 
     const results: Array<{ profile: string; found: number; saved: number }> = [];
@@ -95,6 +98,8 @@ export async function POST(req: NextRequest) {
                 /youtube\.com/i, /linkedin\.com\/learning/i, /browse jobs/i, /page \d/i,
                 /indeed\.com\/career/i, /glassdoor\.com\/Salary/i, /payscale\.com/i,
                 /wikipedia\.org/i, /reddit\.com/i, /quora\.com/i,
+                /\d+\s+\w+\s+jobs?\s+available/i, /jobs?\s+employment/i,
+                /hiring\s+now\s+on\s+indeed/i, /search\s+results/i,
               ];
               if (skipPatterns.some((p) => p.test(`${title} ${snippet} ${url}`))) continue;
 

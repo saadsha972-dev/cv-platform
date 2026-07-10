@@ -2,8 +2,9 @@
  * GET /api/jobs — list jobs with optional filters
  * Query params: ?status=new&minScore=70&limit=200&profileId=xxx&maxAgeDays=21
  *
- * DELETE /api/jobs — clear old jobs
- * Query params: ?olderThanDays=30
+ * DELETE /api/jobs — clear jobs
+ * ?olderThanDays=30  — delete jobs older than N days
+ * ?all=true           — delete ALL jobs (fresh start)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -38,13 +39,10 @@ export async function GET(req: NextRequest) {
         searchProfile: {
           select: { name: true, cvVariant: { select: { slug: true, roleShort: true } } },
         },
-        matches: {
-          include: { cvVariant: { select: { roleShort: true } } },
-        },
       },
     });
 
-    return NextResponse.json({ jobs, filter: { maxAgeDays, active: maxAgeDays > 0 } });
+    return NextResponse.json({ jobs, filters: { maxAgeDays, minScore, status } });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -53,23 +51,25 @@ export async function GET(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const olderThanDays = parseInt(searchParams.get("olderThanDays") || "30");
+    const purgeAll = searchParams.get("all") === "true";
 
+    let result;
+    if (purgeAll) {
+      result = await db.jobPosting.deleteMany({});
+      return NextResponse.json({
+        success: true,
+        deleted: result.count,
+        message: `Purged all ${result.count} jobs — fresh start`,
+      });
+    }
+
+    const olderThanDays = parseInt(searchParams.get("olderThanDays") || "30");
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - olderThanDays);
 
-    const result = await db.jobPosting.deleteMany({
-      where: {
-        createdAt: { lt: cutoff },
-      },
+    result = await db.jobPosting.deleteMany({
+      where: { createdAt: { lt: cutoff } },
     });
-
-    // Also delete orphaned job matches
-    await db.jobMatch.deleteMany({
-      where: {
-        jobPostingId: { in: [] }, // Prisma limitation — matches are deleted by cascade or remain orphaned
-      },
-    }).catch(() => {});
 
     return NextResponse.json({
       success: true,

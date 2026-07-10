@@ -173,19 +173,20 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: string) => void }) {
       {/* STAT CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { icon: <FileText className="w-5 h-5" />, label: "CV Variants", value: stats.cvVariants, gradient: "from-[#1b365d] to-[#162d50]", iconColor: "#c9a84c" },
-          { icon: <Target className="w-5 h-5" />, label: "Search Profiles", value: stats.searchProfiles, gradient: "from-[#2d3748] to-[#1a202c]", iconColor: "#8c7853" },
-          { icon: <Briefcase className="w-5 h-5" />, label: "Jobs Found", value: stats.jobs, gradient: "from-[#1b365d] to-[#2d3748]", iconColor: "#c9a84c" },
-          { icon: <Zap className="w-5 h-5" />, label: "New Matches", value: stats.newJobs, gradient: stats.newJobs > 0 ? "from-emerald-600 to-emerald-800" : "from-slate-500 to-slate-700", iconColor: stats.newJobs > 0 ? "#fff" : "#94a3b8" },
+          { icon: <FileText className="w-5 h-5" />, label: "CV Variants", value: stats.cvVariants, gradient: "from-[#1b365d] to-[#162d50]", iconColor: "#c9a84c", action: "tailor" },
+          { icon: <Target className="w-5 h-5" />, label: "Search Profiles", value: stats.searchProfiles, gradient: "from-[#2d3748] to-[#1a202c]", iconColor: "#8c7853", action: "hunter" },
+          { icon: <Briefcase className="w-5 h-5" />, label: "Jobs Found", value: stats.jobs, gradient: "from-[#1b365d] to-[#2d3748]", iconColor: "#c9a84c", action: "hunter" },
+          { icon: <Zap className="w-5 h-5" />, label: "New Matches", value: stats.newJobs, gradient: stats.newJobs > 0 ? "from-emerald-600 to-emerald-800" : "from-slate-500 to-slate-700", iconColor: stats.newJobs > 0 ? "#fff" : "#94a3b8", action: "hunter" },
         ].map((s) => (
-          <Card key={s.label} className="border-0 shadow-md hover:shadow-lg transition-shadow duration-300">
+          <Card key={s.label} className={`border-0 shadow-md hover:shadow-lg transition-all duration-300 ${s.action ? "cursor-pointer" : ""}`} onClick={s.action ? () => onNavigate(s.action) : undefined}>
             <CardContent className="p-0">
-              <div className={`bg-gradient-to-br ${s.gradient} rounded-2xl p-5 relative overflow-hidden`}>
+              <div className={`bg-gradient-to-br ${s.gradient} rounded-2xl p-5 relative overflow-hidden group`}>
                 <div className="absolute top-0 right-0 w-20 h-20 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
                 <div className="relative z-10">
                   <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center mb-3" style={{ color: s.iconColor }}>{s.icon}</div>
                   <p className="text-white/60 text-xs font-medium uppercase tracking-wider">{s.label}</p>
                   <p className="text-white text-3xl font-bold mt-0.5">{s.value}</p>
+                  {s.action && <ChevronRight className="w-4 h-4 text-white/20 absolute bottom-4 right-4 group-hover:text-white/50 transition-colors" />}
                 </div>
               </div>
             </CardContent>
@@ -503,6 +504,22 @@ function HunterTab() {
     } catch (err: any) { toastAny({ title: "Clear failed", description: err.message, variant: "destructive" }); } finally { setClearing(false); }
   };
 
+  const [purging, setPurging] = useState(false);
+  const handlePurgeAndSearch = async () => {
+    setPurging(true);
+    try {
+      await fetch("/api/jobs?all=true", { method: "DELETE" });
+      setJobs([]);
+      const res = await fetch("/api/search-run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const data = await res.json();
+      if (data.success) {
+        toastAny({ title: "Fresh search complete!", description: data.results.map((r: any) => `${r.profile}: ${r.saved} new jobs`).join(" \u00b7 ") });
+        loadJobs(); loadProfiles();
+      } else if (data.needsSetup) toastAny({ title: "Setup required", description: "Add GROQ_API_KEY and SERPER_API_KEY.", variant: "destructive" });
+      else throw new Error(data.error || "Search failed");
+    } catch (err: any) { toastAny({ title: "Fresh search failed", description: err.message, variant: "destructive" }); } finally { setPurging(false); }
+  };
+
   const handleStatusUpdate = async (jobId: string, status: string) => {
     try { await fetch(`/api/jobs/${jobId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) }); setJobs((prev) => prev.map((j) => j.id === jobId ? { ...j, status } : j)); } catch {}
   };
@@ -526,7 +543,10 @@ function HunterTab() {
             {searching ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Searching...</> : <><Search className="w-4 h-4 mr-2" />Search All Profiles</>}
           </Button>
           <Button onClick={handleClearOld} disabled={clearing} variant="outline" className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white font-medium rounded-lg">
-            <Trash2 className="w-4 h-4 mr-2" />Clear Jobs &gt; 30 days
+            <Trash2 className="w-4 h-4 mr-2" />Clear Old
+          </Button>
+          <Button onClick={handlePurgeAndSearch} disabled={purging || searching} variant="outline" className="bg-[#c9a84c]/20 border-[#c9a84c]/40 text-[#c9a84c] hover:bg-[#c9a84c]/30 hover:text-white font-medium rounded-lg">
+            {purging ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Purging...</> : <><RefreshCw className="w-4 h-4 mr-2" />Purge All &amp; Fresh Search</>}
           </Button>
         </CardContent>
       </Card>
