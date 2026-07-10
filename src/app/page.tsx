@@ -42,6 +42,7 @@ interface JobAnalysis {
 }
 interface TailoredContent {
   tailoredSummary: string; matchedKeywords: string[]; missingKeywords: string[];
+  reframableGaps?: string[]; genuineGaps?: string[]; noiseKeywords?: string[];
 }
 interface RemoteJob {
   title: string; company: string; location: string; url: string;
@@ -360,7 +361,7 @@ function TailorTab() {
       setResult({
         cvPdfBase64: data.cvPdfBase64 || "", coverLetterPdfBase64: data.coverLetterPdfBase64 || "", generatedCvId: data.generatedCvId || "",
         jobAnalysis: { jobTitle: data.jobAnalysis?.jobTitle || "Unknown", company: data.jobAnalysis?.company || "Unknown", location: data.jobAnalysis?.location || "", industry: data.jobAnalysis?.industry || "", seniority: data.jobAnalysis?.seniority || "", tone: data.jobAnalysis?.tone || "", keywords: Array.isArray(data.jobAnalysis?.keywords) ? data.jobAnalysis.keywords : [], requirements: Array.isArray(data.jobAnalysis?.requirements) ? data.jobAnalysis.requirements : [], responsibilities: Array.isArray(data.jobAnalysis?.responsibilities) ? data.jobAnalysis.responsibilities : [] },
-        tailoredContent: { tailoredSummary: data.tailoredContent?.tailoredSummary || "", matchedKeywords: Array.isArray(data.tailoredContent?.matchedKeywords) ? data.tailoredContent.matchedKeywords : [], missingKeywords: Array.isArray(data.tailoredContent?.missingKeywords) ? data.tailoredContent.missingKeywords : [] },
+        tailoredContent: { tailoredSummary: data.tailoredContent?.tailoredSummary || "", matchedKeywords: Array.isArray(data.tailoredContent?.matchedKeywords) ? data.tailoredContent.matchedKeywords : [], missingKeywords: Array.isArray(data.tailoredContent?.missingKeywords) ? data.tailoredContent.missingKeywords : [], reframableGaps: Array.isArray(data.tailoredContent?.reframableGaps) ? data.tailoredContent.reframableGaps : [], genuineGaps: Array.isArray(data.tailoredContent?.genuineGaps) ? data.tailoredContent.genuineGaps : [], noiseKeywords: Array.isArray(data.tailoredContent?.noiseKeywords) ? data.tailoredContent.noiseKeywords : [] },
       });
       toastAny({ title: "CV tailored!", description: `Generated for ${data.jobAnalysis?.jobTitle} at ${data.jobAnalysis?.company}` });
     } catch (err: any) {
@@ -427,11 +428,25 @@ function TailorTab() {
                 <h4 className="text-sm font-bold text-emerald-800 mb-2 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" />Matched Keywords ({result.tailoredContent.matchedKeywords?.length || 0})</h4>
                 <div className="flex flex-wrap gap-1">{(result.tailoredContent.matchedKeywords || []).map((kw: string) => <Badge key={kw} className="bg-emerald-100 text-emerald-700 text-[10px] border-0 font-medium">{kw}</Badge>)}</div>
               </div>
-              {(result.tailoredContent.missingKeywords?.length || 0) > 0 && (
-                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
-                  <h4 className="text-sm font-bold text-amber-800 mb-2 flex items-center gap-2"><AlertCircle className="w-4 h-4" />Gaps ({result.tailoredContent.missingKeywords.length})</h4>
-                  <div className="flex flex-wrap gap-1">{result.tailoredContent.missingKeywords.map((kw: string) => <Badge key={kw} className="bg-amber-100 text-amber-700 text-[10px] border-0 font-medium">{kw}</Badge>)}</div>
-                </div>
+              {(result.tailoredContent.reframableGaps?.length || 0) > 0 && (
+                  <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
+                    <h4 className="text-sm font-bold text-blue-800 mb-1 flex items-center gap-2"><Sparkles className="w-4 h-4" />Covered by Reframing ({result.tailoredContent.reframableGaps!.length})</h4>
+                    <p className="text-[10px] text-blue-600 mb-2">These keywords were woven into your experience bullets by rephrasing existing achievements.</p>
+                    <div className="flex flex-wrap gap-1">{result.tailoredContent.reframableGaps!.map((kw: string) => <Badge key={kw} className="bg-blue-100 text-blue-700 text-[10px] border-0 font-medium">{kw}</Badge>)}</div>
+                  </div>
+              )}
+              {(result.tailoredContent.genuineGaps?.length || 0) > 0 && (
+                  <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
+                    <h4 className="text-sm font-bold text-amber-800 mb-1 flex items-center gap-2"><AlertCircle className="w-4 h-4" />Real Gaps ({result.tailoredContent.genuineGaps!.length})</h4>
+                    <p className="text-[10px] text-amber-600 mb-2">Skills not evidenced in your CV. Address in cover letter or interview prep.</p>
+                    <div className="flex flex-wrap gap-1">{result.tailoredContent.genuineGaps!.map((kw: string) => <Badge key={kw} className="bg-amber-100 text-amber-700 text-[10px] border-0 font-medium">{kw}</Badge>)}</div>
+                  </div>
+              )}
+              {(result.tailoredContent.noiseKeywords?.length || 0) > 0 && (
+                <details className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <summary className="text-xs font-medium text-slate-500 cursor-pointer">Low-priority terms ({result.tailoredContent.noiseKeywords!.length}) — filtered out</summary>
+                  <div className="flex flex-wrap gap-1 mt-2">{result.tailoredContent.noiseKeywords!.map((kw: string) => <Badge key={kw} variant="outline" className="text-[9px] text-slate-400 border-slate-200">{kw}</Badge>)}</div>
+                </details>
               )}
               <Separator />
               <div className="grid grid-cols-2 gap-3">

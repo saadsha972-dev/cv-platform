@@ -171,6 +171,12 @@ export interface TailoredCvContent {
   tailoredBullets: Record<string, string[]>;
   matchedKeywords: string[];
   missingKeywords: string[];
+  /** Gaps that can be covered by reframing existing experience bullets */
+  reframableGaps: string[];
+  /** Gaps that are genuine — the candidate lacks this skill entirely */
+  genuineGaps: string[];
+  /** Low-value / noise keywords from the job posting (too specific, not real skill gaps) */
+  noiseKeywords: string[];
   tailoredSidebarSection1: { title: string; items: string[] };
   tailoredCoverLetter: string;
 }
@@ -179,6 +185,10 @@ export interface TailoredCvContent {
 interface Pass1Result {
   tailoredSummary: string;
   matchedKeywords: string[];
+  reframableGaps: string[];
+  genuineGaps: string[];
+  noiseKeywords: string[];
+  /** Union of genuineGaps + reframableGaps for backward compat */
   missingKeywords: string[];
   tailoredSidebarSection1: { title: string; items: string[] };
   tailoredCoverLetter: string;
@@ -234,10 +244,16 @@ YOUR TASKS:
    - Weave in 5-8 keywords from the job posting that the candidate genuinely possesses
    - Restructure around what THIS job values most — do NOT just rephrase the original
 
-2. KEYWORD CLASSIFICATION:
-   - MATCHED: keywords from the job posting the candidate has EVIDENCE for
-   - MISSING: keywords the candidate has NO evidence for
-   Be honest and conservative.
+2. GAP ANALYSIS — Classify each unmatched keyword into ONE of three categories:
+
+   a) REFRAMEABLE (reframableGaps): The candidate has the UNDERLYING EXPERIENCE but it's described using different words. For example, if the job says "distributor management" and the candidate has "managed certification service portfolios across 45+ clients" — that IS distributor/channel management, just phrased differently. These CAN be covered by rewriting bullets to use the job's terminology. Be GENEROUS here — if there's ANY plausible connection, classify as reframeable.
+
+   b) GENUINE GAPS (genuineGaps): The candidate has ZERO evidence for this skill and no amount of rephrasing can create it. Examples: specific ERP modules they've never used, industry-specific regulations they have no exposure to, certifications they don't hold. Be STRICT here — only include truly missing skills.
+
+   c) NOISE / LOW-VALUE (noiseKeywords): Overly specific operational terms, internal company jargon, or trivial task descriptions that aren't real skill requirements. Examples: "grn generation", "c forms collection", "credit note", "debit note", "mis generation". These are just day-to-day ERP tasks, not strategic skills. INCLUDE these here so they don't alarm the user.
+
+   Every unmatched keyword MUST go into exactly one category. Do NOT leave any unclassified.
+   Be smart: the goal is to MINIMIZE genuine gaps by finding reframeable connections.
 
 3. SIDEBAR SKILLS (8-10 items):
    - You MUST ONLY use skills from the CANDIDATE'S EXISTING SKILL POOL listed above
@@ -255,7 +271,9 @@ Return ONLY valid JSON:
 {
   "tailoredSummary": "...",
   "matchedKeywords": ["kw1", "kw2"],
-  "missingKeywords": ["kw1"],
+  "reframableGaps": ["keyword coverable by rephrasing existing experience"],
+  "genuineGaps": ["keyword the candidate truly lacks"],
+  "noiseKeywords": ["low-value operational jargon"],
   "tailoredSidebarSection1": {
     "title": "Core Competencies",
     "items": ["Skill A", "Skill B", "Skill C", "Skill D", "Skill E", "Skill F", "Skill G", "Skill H"]
@@ -275,7 +293,11 @@ Return ONLY valid JSON:
         const parsed = JSON.parse(cleaned) as Pass1Result;
         if (!parsed.tailoredSummary || parsed.tailoredSummary.length < 30) return null;
         parsed.matchedKeywords = Array.isArray(parsed.matchedKeywords) ? parsed.matchedKeywords : [];
-        parsed.missingKeywords = Array.isArray(parsed.missingKeywords) ? parsed.missingKeywords : [];
+        parsed.reframableGaps = Array.isArray(parsed.reframableGaps) ? parsed.reframableGaps : [];
+        parsed.genuineGaps = Array.isArray(parsed.genuineGaps) ? parsed.genuineGaps : [];
+        parsed.noiseKeywords = Array.isArray(parsed.noiseKeywords) ? parsed.noiseKeywords : [];
+        // Build missingKeywords as union of genuine + reframable for backward compat
+        parsed.missingKeywords = [...(parsed.genuineGaps || []), ...(parsed.reframableGaps || [])];
         parsed.tailoredSidebarSection1 = parsed.tailoredSidebarSection1 || { title: "Core Competencies", items: [] };
         parsed.tailoredCoverLetter = parsed.tailoredCoverLetter || "";
         return parsed;
@@ -343,6 +365,7 @@ TARGET JOB CONTEXT:
 - Company: ${analysis.company}
 - Industry: ${analysis.industry}
 - Keywords: ${analysis.keywords.join(", ")}
+- PRIORITY KEYWORDS (reframable gaps — the candidate has the experience but uses different words; REWRITE bullets to use these exact terms): ${pass1.reframableGaps.join(", ")}
 - Responsibilities: ${analysis.responsibilities.join("; ")}
 - Requirements: ${analysis.requirements.join("; ")}
 
@@ -475,6 +498,9 @@ export const tailorCvForJob = async (
     tailoredBullets: mappedBullets,
     matchedKeywords: pass1.matchedKeywords,
     missingKeywords: pass1.missingKeywords,
+    reframableGaps: pass1.reframableGaps,
+    genuineGaps: pass1.genuineGaps,
+    noiseKeywords: pass1.noiseKeywords,
     tailoredSidebarSection1: pass1.tailoredSidebarSection1,
     tailoredCoverLetter: pass1.tailoredCoverLetter,
   };
