@@ -1,15 +1,20 @@
 /**
- * LLM Tailor Module
- * ==================
+ * LLM Tailor Module v2
+ * =====================
  * Calls the LLM (via zai-init.ts composite client) to:
  * 1. Analyze a job posting → extract keywords, requirements, seniority, tone
  * 2. Tailor a CV variant's summary + bullets to emphasize relevant keywords
+ *    (TWO-PASS: Pass 1 = summary + sidebar + cover letter, Pass 2 = detailed bullet rewrites)
  * 3. Generate a cover letter that addresses the specific job
  * 4. Score how well a job posting matches a CV variant
  *
- * The composite client in zai-init.ts automatically tries z.ai first,
- * then falls back to Groq if z.ai fails. This module retries JSON parse
- * failures with different model hints to maximize success.
+ * v2 CHANGES:
+ * - Split tailoring into two focused LLM calls for higher quality
+ * - Pass 1: Summary rewrite + sidebar skills + cover letter + keyword classification
+ * - Pass 2: Dedicated bullet-by-bullet rewrite with explicit entry IDs (index-based)
+ * - Robust index-based bullet matching (eliminates key name mismatch bugs)
+ * - Post-LLM keyword injection check: if bullets lack job keywords, inject them
+ * - Stronger, more directive prompts
  */
 
 import { createZai, getLlmDiagnostics } from "./zai-init";
@@ -21,13 +26,6 @@ const getZai = createZai;
 // ROBUST LLM CALL WITH JSON RETRY
 // ---------------------------------------------------------------------------
 
-/**
- * Call the LLM and parse the JSON response.
- * Retries with different model hints on JSON parse failure.
- * The underlying composite client (zai-init.ts) already handles
- * z.ai → Groq fallback at the transport level.
- * Throws if ALL attempts fail to produce valid JSON.
- */
 async function callLlmAndParseJson<T>(
   messages: Array<{ role: string; content: string }>,
   maxTokens: number,
@@ -37,15 +35,12 @@ async function callLlmAndParseJson<T>(
 ): Promise<T> {
   const zai = await getZai();
 
-  // Log diagnostics on first call
   console.log(`[llm-tailor] ${label} starting. Diagnostics:`, JSON.stringify(getLlmDiagnostics()));
 
-  // Models to try — start with default (composite client picks best), 
-  // then hint specific Groq models on retries for better JSON quality
   const MODEL_HINTS = [
-    undefined,                       // attempt 1: let composite client decide
-    "llama3-70b-8192",              // attempt 2: force 70B for better JSON
-    "llama-3.3-70b-versatile",      // attempt 3: try versatile 70B
+    undefined,
+    "llama3-70b-8192",
+    "llama-3.3-70b-versatile",
   ];
   const maxAttempts = MODEL_HINTS.length;
   let lastError = "";
@@ -57,7 +52,6 @@ async function callLlmAndParseJson<T>(
         temperature,
         max_tokens: maxTokens,
       };
-      // Set model hint for retries (attempt 2+)
       if (MODEL_HINTS[attempt - 1]) {
         body.model = MODEL_HINTS[attempt - 1];
       }
@@ -89,7 +83,6 @@ async function callLlmAndParseJson<T>(
     }
   }
 
-  // All attempts failed
   throw new Error(
     `AI ${label} failed after ${maxAttempts} attempts. ` +
     `Diagnostics: z.ai=${!!process.env.ZAI_TOKEN}, groq=${!!process.env.GROQ_API_KEY}. ` +
@@ -98,7 +91,7 @@ async function callLlmAndParseJson<T>(
 }
 
 // ---------------------------------------------------------------------------
-// JOB POSTING ANALYSIS
+// JOB POSTING ANALYSIS (unchanged — this works well)
 // ---------------------------------------------------------------------------
 export interface JobAnalysis {
   jobTitle: string;
@@ -143,14 +136,11 @@ Return JSON in this exact schema:
     (cleaned) => {
       try {
         const parsed = JSON.parse(cleaned) as JobAnalysis;
-        // Validate: must have jobTitle and NON-EMPTY keywords array
         if (!parsed.jobTitle || typeof parsed.jobTitle !== "string") return null;
         if (!Array.isArray(parsed.keywords) || parsed.keywords.length === 0) return null;
-        // Clean up keywords
         if (parsed.keywords) {
           parsed.keywords = [...new Set(parsed.keywords.map((k: string) => k.toLowerCase().trim()).filter(Boolean))];
         }
-        // Ensure required fields have defaults
         parsed.company = parsed.company || "Not specified";
         parsed.location = parsed.location || "Not specified";
         parsed.requirements = Array.isArray(parsed.requirements) ? parsed.requirements : [];
@@ -170,8 +160,9 @@ Return JSON in this exact schema:
 };
 
 // ---------------------------------------------------------------------------
-// CV TAILORING
+// CV TAILORING — TWO-PASS ARCHITECTURE
 // ---------------------------------------------------------------------------
+
 export interface TailoredCvContent {
   tailoredSummary: string;
   tailoredBullets: Record<string, string[]>;
@@ -181,41 +172,37 @@ export interface TailoredCvContent {
   tailoredCoverLetter: string;
 }
 
-export const tailorCvForJob = async (
-  cv: CvData,
-  analysis: JobAnalysis
-): Promise<TailoredCvContent> => {
-  // Only include entries that are NOT locked
-  const tailorableEntries = [...cv.experiencePage1, ...cv.experiencePage2].filter(
-    (e) => !e.lockTailoring
-  );
-  const lockedEntries = [...cv.experiencePage1, ...cv.experiencePage2].filter(
-    (e) => e.lockTailoring
-  );
+// --- PASS 1: Summary + Sidebar + Cover Letter + Keyword Classification ---
+interface Pass1Result {
+  tailoredSummary: string;
+  matchedKeywords: string[];
+  missingKeywords: string[];
+  tailoredSidebarSection1: { title: string; items: string[] };
+  tailoredCoverLetter: string;
+}
 
-  const cvBullets = tailorableEntries
-    .map((e) => `- ${e.title} @ ${e.company} (${e.dates}): ${e.bullets.join(" | ")}`)
-    .join("\n");
-
-  const lockedNote = lockedEntries.length
-    ? `\n\nNOTE: The following entries are LOCKED — do NOT return bullets for them:\n${lockedEntries.map((e) => `- ${e.title} @ ${e.company}`).join("\n")}`
-    : "";
-
-  // Gather the current sidebar section 1 for context
+const runPass1 = async (cv: CvData, analysis: JobAnalysis): Promise<Pass1Result> => {
   const currentSidebarSection1 = cv.sidebarPage1[0];
   const currentSidebarItems = currentSidebarSection1
     ? currentSidebarSection1.items.map((i) => (Array.isArray(i) ? i[0] : String(i))).join(", ")
     : "(none)";
 
-  const prompt = `You are an expert executive CV writer. Tailor the candidate's CV to maximize relevance to a specific job posting. Be AGGRESSIVE in rephrasing bullets — but NEVER fabricate new experience, achievements, or skills that aren't in the original.
+  // Gather all experience for context (summarized — no need for full bullets in pass 1)
+  const experienceSummary = [...cv.experiencePage1, ...cv.experiencePage2]
+    .map((e) => `• ${e.title} @ ${e.company} (${e.location}, ${e.dates}): ${e.bullets[0] || "(no details)"}`)
+    .join("\n");
 
-CANDIDATE'S CV SUMMARY (original):
+  const prompt = `You are an expert executive CV writer tailoring a CV for a specific job posting. This is PASS 1 of 2. In this pass, you ONLY rewrite the summary, sidebar skills, cover letter, and classify keywords. DO NOT rewrite experience bullets (that is Pass 2).
+
+RULES: NEVER fabricate experience, achievements, or skills not present in the candidate's background. Only highlight and reframe what EXISTS.
+
+CANDIDATE'S CURRENT SUMMARY:
 ${cv.summary}
 
-CANDIDATE'S EXPERIENCE BULLETS (original — only these can be tailored):
-${cvBullets}${lockedNote}
+CANDIDATE'S EXPERIENCE (summary — first bullet of each role):
+${experienceSummary}
 
-CANDIDATE'S CURRENT SIDEBAR SECTION 1 ("${currentSidebarSection1?.title || "Core Competencies"}"):
+CANDIDATE'S CURRENT SIDEBAR ("${currentSidebarSection1?.title || "Core Competencies"}"):
 ${currentSidebarItems}
 
 TARGET JOB:
@@ -224,73 +211,50 @@ TARGET JOB:
 - Industry: ${analysis.industry}
 - Seniority: ${analysis.seniority}
 - Tone: ${analysis.tone}
-- Top Keywords: ${analysis.keywords.join(", ")}
+- All Keywords: ${analysis.keywords.join(", ")}
 - Key Requirements: ${analysis.requirements.join("; ")}
 - Key Responsibilities: ${analysis.responsibilities.join("; ")}
 
 YOUR TASKS:
 
-1. REWRITE THE SUMMARY (3-4 sentences, ~80 words): Naturally incorporate the top keywords from the job posting. Lead with the candidate's most relevant qualification for THIS role.
+1. TAILORED SUMMARY: Rewrite in 3-4 sentences (~80-100 words). The FIRST sentence must directly address THIS role's core requirement (e.g., "Results-driven [role] with X years of experience in [key domain from job posting]"). Naturally weave in 5-8 of the most important keywords from the job posting that the candidate genuinely possesses. Do NOT just copy the original summary — restructure it to lead with what THIS job cares about most.
 
-2. REPHRASE AND REORDER BULLETS (most important task):
-   For EACH tailorable experience entry, rewrite the bullets to lead with the most relevant achievement for this job:
-   a) REORDER: Put the most relevant bullet FIRST.
-   b) REPHRASE: Rewrite each bullet to emphasize the aspect that aligns with the job. Use EXACT keyword phrases from the job posting naturally.
-   c) KEYWORD INTEGRATION: Make sure EVERY important keyword phrase from the job posting appears somewhere in the tailored bullets where the candidate has genuine evidence.
-   d) DEMOTE IRRELEVANT CONTENT: If a role has no relevant experience for this job, keep the bullets factual but brief.
-   e) RETURN 4-5 BULLETS PER ENTRY. Each bullet should be 1-2 sentences (~120-180 characters).
-   f) NEVER FABRICATE: Do not invent new achievements, metrics, or skills.
+2. KEYWORD CLASSIFICATION:
+   - MATCHED: Keywords from the job posting that the candidate has EVIDENCE for (from their experience, certifications, or skills).
+   - MISSING: Keywords the candidate has NO evidence for.
+   Be honest. If a keyword is partially matched, include it in matched but only if there's genuine evidence.
 
-3. REWRITE SIDEBAR SECTION 1: Select 8-10 skills/competencies most relevant to this specific job posting and genuinely supported by the candidate's experience.
+3. SIDEBAR SKILLS: Rewrite the sidebar section to show 8-10 skills MOST RELEVANT to this specific job. Only include skills genuinely evidenced in the candidate's background. Prioritize skills that appear in the job posting.
 
-4. WRITE A TAILORED COVER LETTER (3-4 paragraphs, ~300-400 words total):
-   - Paragraph 1: Express specific interest in THIS role at THIS company. Reference 1-2 specific requirements.
-   - Paragraph 2: Reference 2-3 specific achievements from the candidate's experience most relevant to this role.
-   - Paragraph 3: Explain why THIS company/role is appealing and how the candidate would add value.
-   - Closing: Professional sign-off.
-   Use \\n\\n between paragraphs. Do NOT include date, addressee, subject line, or salutation.
+4. COVER LETTER (3-4 paragraphs, ~300-400 words, use \\n\\n between paragraphs):
+   - Para 1: Express interest in THIS role at THIS company. Reference 1-2 SPECIFIC requirements from the posting and how the candidate meets them.
+   - Para 2: Reference 2-3 SPECIFIC achievements from the candidate's experience that are directly relevant. Use concrete details.
+   - Para 3: Why THIS company/role appeals and how the candidate adds value.
+   - No date, no addressee, no subject line, no "Dear Hiring Manager," — just the body paragraphs.
 
-5. MATCHED KEYWORDS: List which keywords from the job posting the candidate has evidence for.
-6. MISSING KEYWORDS: List which keywords are NOT evidenced in the CV.
-
-Return ONLY valid JSON (no markdown fences):
+Return ONLY valid JSON:
 {
-  "tailoredSummary": "the rewritten 3-4 sentence summary",
-  "tailoredBullets": {
-    "${tailorableEntries[0]?.title || "Job Title"}": ["rephrased bullet 1", "rephrased bullet 2", "rephrased bullet 3", "rephrased bullet 4"]
-  },
-  "matchedKeywords": ["keyword1", "keyword2"],
-  "missingKeywords": ["keyword1", "keyword2"],
+  "tailoredSummary": "3-4 sentence tailored summary...",
+  "matchedKeywords": ["keyword1", "keyword2", "..."],
+  "missingKeywords": ["keyword1", "..."],
   "tailoredSidebarSection1": {
     "title": "Core Competencies",
     "items": ["Skill 1", "Skill 2", "Skill 3", "Skill 4", "Skill 5", "Skill 6", "Skill 7", "Skill 8"]
   },
-  "tailoredCoverLetter": "Paragraph 1.\\n\\nParagraph 2.\\n\\nParagraph 3.\\n\\nClosing."
+  "tailoredCoverLetter": "Paragraph 1.\\n\\nParagraph 2.\\n\\nParagraph 3."
 }`;
 
-  const result = await callLlmAndParseJson<TailoredCvContent>(
+  return callLlmAndParseJson<Pass1Result>(
     [
-      { role: "system", content: "You are an expert executive CV writer. You NEVER fabricate experience. You are AGGRESSIVE in making bullets relevant. You return valid JSON only — no markdown fences, no commentary." },
+      { role: "system", content: "You are an expert executive CV writer. You NEVER fabricate experience. You produce compelling, keyword-rich summaries. Return valid JSON only — no markdown fences, no commentary." },
       { role: "user", content: prompt },
     ],
-    6000,
+    3000,
     0.5,
     (cleaned) => {
       try {
-        const parsed = JSON.parse(cleaned) as TailoredCvContent;
-        // Validate: must have a non-empty tailoredSummary and at least some tailoredBullets
-        if (!parsed.tailoredSummary || typeof parsed.tailoredSummary !== "string" || parsed.tailoredSummary.length < 20) return null;
-        if (!parsed.tailoredBullets || typeof parsed.tailoredBullets !== "object" || Object.keys(parsed.tailoredBullets).length === 0) return null;
-        // Validate that at least some bullets are non-empty arrays
-        let hasBullets = false;
-        for (const key of Object.keys(parsed.tailoredBullets)) {
-          if (Array.isArray(parsed.tailoredBullets[key]) && parsed.tailoredBullets[key].length > 0) {
-            hasBullets = true;
-            break;
-          }
-        }
-        if (!hasBullets) return null;
-        // Fill in defaults for optional fields
+        const parsed = JSON.parse(cleaned) as Pass1Result;
+        if (!parsed.tailoredSummary || parsed.tailoredSummary.length < 30) return null;
         parsed.matchedKeywords = Array.isArray(parsed.matchedKeywords) ? parsed.matchedKeywords : [];
         parsed.missingKeywords = Array.isArray(parsed.missingKeywords) ? parsed.missingKeywords : [];
         parsed.tailoredSidebarSection1 = parsed.tailoredSidebarSection1 || { title: "Core Competencies", items: [] };
@@ -300,14 +264,235 @@ Return ONLY valid JSON (no markdown fences):
         return null;
       }
     },
-    "cv-tailoring",
+    "cv-tailoring-pass1",
+  );
+};
+
+// --- PASS 2: Dedicated Bullet Rewrites ---
+interface Pass2Result {
+  tailoredBullets: Record<string, string[]>;
+}
+
+const runPass2 = async (
+  cv: CvData,
+  analysis: JobAnalysis,
+  pass1: Pass1Result,
+): Promise<Pass2Result> => {
+  // Build entry-by-entry data with EXPLICIT INDEX KEYS to avoid name mismatch
+  const tailorableEntries = [...cv.experiencePage1, ...cv.experiencePage2].filter(
+    (e) => !e.lockTailoring,
   );
 
-  return result;
+  if (tailorableEntries.length === 0) {
+    return { tailoredBullets: {} };
+  }
+
+  // Create the experience data block with indexed keys
+  const entriesBlock = tailorableEntries.map((e, idx) => {
+    const bulletsText = e.bullets.map((b, bIdx) => `    [${bIdx}] ${b}`).join("\n");
+    return `[ENTRY ${idx}]
+  TITLE: ${e.title}
+  COMPANY: ${e.company}
+  LOCATION: ${e.location}
+  DATES: ${e.dates}
+  BULLETS:
+${bulletsText}`;
+  }).join("\n\n");
+
+  const entryKeysJson = tailorableEntries.map((e, idx) => `"${idx}": "${e.title} @ ${e.company}"`).join(",\n    ");
+
+  const prompt = `You are an expert CV bullet rewriter. This is PASS 2 of 2 — your ONLY job is to rewrite experience bullets to maximize relevance to a job posting. The summary, sidebar, and cover letter have already been handled.
+
+CRITICAL RULES:
+1. NEVER fabricate achievements, metrics, or skills that aren't in the original bullets.
+2. You MUST use the EXACT entry keys provided (numbers: "0", "1", "2", etc.) — do NOT use job titles as keys.
+3. REORDER each entry's bullets so the most relevant one for THIS job is FIRST.
+4. REPHRASE each bullet to naturally incorporate keywords from the job posting where the candidate has genuine evidence.
+5. If a bullet has NO relevance to the job, keep it factual but make it brief and neutral.
+6. Return exactly 4-5 bullets per entry. Each bullet: 1-2 sentences, ~120-180 characters.
+7. Every rewritten bullet must retain the CORE FACT of the original — just reframe the emphasis.
+
+TARGET JOB KEYWORDS TO INTEGRATE (where genuine evidence exists):
+${analysis.keywords.join(", ")}
+
+KEY RESPONSIBILITIES (use these to judge relevance when reordering):
+${analysis.responsibilities.join("; ")}
+
+KEY REQUIREMENTS:
+${analysis.requirements.join("; ")}
+
+CANDIDATE'S EXPERIENCE ENTRIES (rewrite bullets for each):
+${entriesBlock}
+
+ENTRY KEY MAP (use these EXACT keys in your response):
+{
+    ${entryKeysJson}
+}
+
+Return ONLY valid JSON with the EXACT entry index keys. Do NOT include entries that have no changes (but still include entries where you at least reordered):
+{
+  "tailoredBullets": {
+    "0": ["rewritten bullet 1 (most relevant first)", "rewritten bullet 2", "rewritten bullet 3", "rewritten bullet 4"],
+    "1": ["rewritten bullet 1", "rewritten bullet 2", "rewritten bullet 3", "rewritten bullet 4"]
+  }
+}`;
+
+  return callLlmAndParseJson<Pass2Result>(
+    [
+      { role: "system", content: "You are a CV bullet rewriter. You are AGGRESSIVE in reframing bullets to be relevant. You NEVER fabricate. You use EXACT numeric keys provided. Return valid JSON only — no markdown fences." },
+      { role: "user", content: prompt },
+    ],
+    4000,
+    0.4,
+    (cleaned) => {
+      try {
+        const parsed = JSON.parse(cleaned) as Pass2Result;
+        if (!parsed.tailoredBullets || typeof parsed.tailoredBullets !== "object") return null;
+        // Validate at least one entry has non-empty bullets
+        let hasBullets = false;
+        for (const key of Object.keys(parsed.tailoredBullets)) {
+          if (Array.isArray(parsed.tailoredBullets[key]) && parsed.tailoredBullets[key].length > 0) {
+            hasBullets = true;
+            break;
+          }
+        }
+        if (!hasBullets) return null;
+        return parsed;
+      } catch {
+        return null;
+      }
+    },
+    "cv-tailoring-pass2",
+  );
 };
 
 // ---------------------------------------------------------------------------
-// JOB MATCH SCORING
+// POST-PROCESSING: Keyword injection check
+// ---------------------------------------------------------------------------
+
+/**
+ * After the LLM rewrites bullets, check whether important matched keywords
+ * actually appear in the tailored bullets. If a matched keyword is missing
+ * from ALL bullets, inject it into the most relevant bullet naturally.
+ */
+function injectMissingKeywords(
+  tailoredBullets: Record<string, string[]>,
+  matchedKeywords: string[],
+  originalBullets: Record<string, string[]>,
+): void {
+  const allTailoredText = Object.values(tailoredBullets).flat().join(" ").toLowerCase();
+
+  for (const kw of matchedKeywords) {
+    const kwLower = kw.toLowerCase();
+    // Skip very generic keywords that aren't specific enough to inject
+    if (kwLower.length < 4) continue;
+    // Check if keyword already appears naturally
+    if (allTailoredText.includes(kwLower)) continue;
+
+    // Find the best bullet to inject into — prefer one that already shares
+    // some context with the keyword
+    let bestKey = "";
+    let bestScore = -1;
+
+    for (const [key, bullets] of Object.entries(tailoredBullets)) {
+      const origBullets = originalBullets[key] || [];
+      const origText = origBullets.join(" ").toLowerCase();
+      // Simple word overlap scoring
+      const kwWords = kwLower.split(/\s+/);
+      const overlapCount = kwWords.filter(w => w.length > 3 && origText.includes(w)).length;
+      if (overlapCount > bestScore) {
+        bestScore = overlapCount;
+        bestKey = key;
+      }
+    }
+
+    if (bestKey && tailoredBullets[bestKey]?.length > 0) {
+      // Inject into the FIRST bullet of the best entry (most prominent position)
+      const firstBullet = tailoredBullets[bestKey][0];
+      // Try to append the keyword contextually
+      if (!firstBullet.endsWith(".")) {
+        tailoredBullets[bestKey][0] = `${firstBullet}, with expertise in ${kw}`;
+      } else {
+        tailoredBullets[bestKey][0] = `${firstBullet.slice(0, -1)}, leveraging ${kw} capabilities`;
+      }
+      console.log(`[llm-tailor] keyword-inject: "${kw}" → entry "${bestKey}" first bullet`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MAIN TAILOR FUNCTION (orchestrates both passes)
+// ---------------------------------------------------------------------------
+
+export const tailorCvForJob = async (
+  cv: CvData,
+  analysis: JobAnalysis
+): Promise<TailoredCvContent> => {
+  // --- PASS 1: Summary + Sidebar + Cover Letter + Keyword Classification ---
+  console.log(`[llm-tailor] Starting Pass 1: Summary + Sidebar + Cover Letter...`);
+  const pass1 = await runPass1(cv, analysis);
+  console.log(`[llm-tailor] Pass 1 done. Matched: ${pass1.matchedKeywords.length}, Missing: ${pass1.missingKeywords.length}, Summary: ${pass1.tailoredSummary.length} chars`);
+
+  // --- PASS 2: Dedicated Bullet Rewrites ---
+  console.log(`[llm-tailor] Starting Pass 2: Bullet rewrites...`);
+  let pass2: Pass2Result;
+  try {
+    pass2 = await runPass2(cv, analysis, pass1);
+    console.log(`[llm-tailor] Pass 2 done. ${Object.keys(pass2.tailoredBullets).length} entries rewritten`);
+  } catch (err: any) {
+    console.warn(`[llm-tailor] Pass 2 failed, falling back to original bullets: ${err.message}`);
+    pass2 = { tailoredBullets: {} };
+  }
+
+  // --- POST-PROCESS: Map index-based keys to "Title @ Company" keys ---
+  // (for backward compatibility with route.ts findTailoredBullets)
+  const tailorableEntries = [...cv.experiencePage1, ...cv.experiencePage2].filter(
+    (e) => !e.lockTailoring,
+  );
+
+  const mappedBullets: Record<string, string[]> = {};
+  // Keep both index keys AND title-based keys for robust matching
+  for (const [idxStr, bullets] of Object.entries(pass2.tailoredBullets)) {
+    const idx = parseInt(idxStr);
+    if (isNaN(idx) || idx < 0 || idx >= tailorableEntries.length) {
+      console.warn(`[llm-tailor] Pass 2 returned unknown index key: "${idxStr}"`);
+      continue;
+    }
+    const entry = tailorableEntries[idx];
+    const titleKey = entry.title;
+    const fullKey = `${entry.title} @ ${entry.company}`;
+
+    // Store under BOTH keys for maximum matching compatibility
+    mappedBullets[idxStr] = bullets;
+    mappedBullets[titleKey] = bullets;
+    mappedBullets[fullKey] = bullets;
+  }
+
+  // --- POST-PROCESS: Keyword injection check ---
+  // Build original bullets map by index for injection check
+  const originalBulletsByIndex: Record<string, string[]> = {};
+  tailorableEntries.forEach((e, idx) => {
+    originalBulletsByIndex[String(idx)] = e.bullets;
+  });
+
+  if (pass1.matchedKeywords.length > 0 && Object.keys(mappedBullets).length > 0) {
+    injectMissingKeywords(mappedBullets, pass1.matchedKeywords, originalBulletsByIndex);
+  }
+
+  console.log(`[llm-tailor] Tailoring complete. Mapped bullet keys: ${Object.keys(mappedBullets).filter(k => !/^\d+$/.test(k)).join(", ")}`);
+
+  return {
+    tailoredSummary: pass1.tailoredSummary,
+    tailoredBullets: mappedBullets,
+    matchedKeywords: pass1.matchedKeywords,
+    missingKeywords: pass1.missingKeywords,
+    tailoredSidebarSection1: pass1.tailoredSidebarSection1,
+    tailoredCoverLetter: pass1.tailoredCoverLetter,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// JOB MATCH SCORING (unchanged)
 // ---------------------------------------------------------------------------
 export interface JobMatchResult {
   matchScore: number;

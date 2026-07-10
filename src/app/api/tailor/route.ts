@@ -75,8 +75,11 @@ export async function POST(req: NextRequest) {
       }, { status: 503 });
     }
 
-    // Build a lookup that matches bullets by job title (handles both
-    // "Title" and "Title @ Company" key formats returned by the LLM)
+    // Build a lookup that matches bullets by multiple key formats:
+    // 1. Numeric index keys ("0", "1", ...) from new two-pass system
+    // 2. Title-only keys ("Stock Manager")
+    // 3. Full keys ("Stock Manager @ Michael Kors")
+    // 4. Fuzzy substring matching as last resort
     const splitBullets = (bullets: string[]): string[] => {
       const result: string[] = [];
       for (const b of bullets) {
@@ -92,12 +95,31 @@ export async function POST(req: NextRequest) {
       return result;
     };
 
-    const findTailoredBullets = (entry: { title: string; company: string }): string[] | null => {
+    // Build a reverse index: for each tailorable entry, record its position index
+    const tailorableEntries = [...baseCv.experiencePage1, ...baseCv.experiencePage2].filter(
+      (e) => !e.lockTailoring,
+    );
+    const entryIndexMap = new Map<string, number>();
+    tailorableEntries.forEach((e, idx) => {
+      entryIndexMap.set(e.title, idx);
+      entryIndexMap.set(`${e.title} @ ${e.company}`, idx);
+      entryIndexMap.set(String(idx), idx);
+    });
+
+    const findTailoredBullets = (entry: { title: string; company: string }, globalIdx: number): string[] | null => {
       const tb = tailored.tailoredBullets || {};
+      // Strategy 1: Direct title match
       if (tb[entry.title]) return splitBullets(tb[entry.title]);
+      // Strategy 2: Full "Title @ Company" match
       const fullKey = `${entry.title} @ ${entry.company}`;
       if (tb[fullKey]) return splitBullets(tb[fullKey]);
+      // Strategy 3: Numeric index match (from two-pass system)
+      const idxKey = String(globalIdx);
+      if (tb[idxKey]) return splitBullets(tb[idxKey]);
+      // Strategy 4: Fuzzy substring matching
       for (const key of Object.keys(tb)) {
+        // Skip pure numeric keys (already checked above)
+        if (/^\d+$/.test(key)) continue;
         const cleanKey = key.split(" @ ")[0].trim();
         if (cleanKey === entry.title || key.includes(entry.title) || entry.title.includes(cleanKey)) {
           return splitBullets(tb[key]);
@@ -107,12 +129,16 @@ export async function POST(req: NextRequest) {
     };
 
     // Build a tailored CV variant: clone the base, override summary + bullets + sidebar section 1
+    let tailorableIdx = 0; // tracks position among tailorable entries
+    const getNextTailorableIdx = () => tailorableIdx++;
+
     const tailoredCv: CvData = {
       ...baseCv,
       summary: customSummary?.trim() || tailored.tailoredSummary || baseCv.summary,
       experiencePage1: baseCv.experiencePage1.map((e) => {
         if (e.lockTailoring) return e;
-        const newBullets = findTailoredBullets(e);
+        const idx = getNextTailorableIdx();
+        const newBullets = findTailoredBullets(e, idx);
         if (newBullets && newBullets.length > 0) {
           return { ...e, bullets: newBullets.slice(0, 5) };
         }
@@ -120,7 +146,8 @@ export async function POST(req: NextRequest) {
       }),
       experiencePage2: baseCv.experiencePage2.map((e) => {
         if (e.lockTailoring) return e;
-        const newBullets = findTailoredBullets(e);
+        const idx = getNextTailorableIdx();
+        const newBullets = findTailoredBullets(e, idx);
         if (newBullets && newBullets.length > 0) {
           return { ...e, bullets: newBullets.slice(0, 5) };
         }
