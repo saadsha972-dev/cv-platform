@@ -67,18 +67,39 @@ async function serperSearch(query: string, gl: string, num = 15): Promise<any[]>
 // FRESHNESS CHECK
 // ---------------------------------------------------------------------------
 function isFresh(item: any): boolean {
-  if (item.date) {
-    try {
-      const d = new Date(item.date);
+  // Serper returns relative dates like "1 day ago", "10 hours ago", "3 days ago"
+  // NOT parseable date strings. new Date("1 day ago") = Invalid Date (no throw!).
+  const dateStr = (item.date || "").toString().trim();
+
+  // Parse relative patterns: "X hours/minutes/days/weeks ago"
+  const relMatch = dateStr.match(/(\d+)\s+(hour|minute|day|week)s?\s+ago/i);
+  if (relMatch) {
+    const num = parseInt(relMatch[1]);
+    const unit = relMatch[2].toLowerCase();
+    if (unit === "minute") return true;                         // always fresh
+    if (unit === "hour") return num <= MAX_AGE_DAYS * 24;      // within days
+    if (unit === "day") return num <= MAX_AGE_DAYS;
+    if (unit === "week") return num <= Math.ceil(MAX_AGE_DAYS / 7);
+    return true;
+  }
+
+  // If it's an absolute date string (e.g. "Jul 10, 2026"), validate it properly
+  if (dateStr && !relMatch) {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
       const ageMs = Date.now() - d.getTime();
-      return ageMs <= MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
-    } catch { /* ignore */ }
+      return ageMs >= 0 && ageMs <= MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+    }
   }
+
+  // Also check snippet for "X days ago" as fallback
   const snippet = item.snippet || "";
-  const daysAgoMatch = snippet.match(/(\d+)\s+days?\s+ago/i);
-  if (daysAgoMatch) {
-    return parseInt(daysAgoMatch[1]) <= MAX_AGE_DAYS;
+  const snippetDays = snippet.match(/(\d+)\s+days?\s+ago/i);
+  if (snippetDays) {
+    return parseInt(snippetDays[1]) <= MAX_AGE_DAYS;
   }
+
+  // No date info — since we use tbs: "qdr:w" (past week), assume fresh
   return true;
 }
 
