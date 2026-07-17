@@ -15,7 +15,8 @@ const BLOCKED_DOMAINS = [
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const query = body.query || 'Director of Corporate Sales';
+    // Force Mid-Senior level and remove Director
+    let query = (body.query || 'Corporate Sales').replace(/director/gi, 'Mid Senior Level');
     const location = body.location || 'Worldwide';
 
     const searchQuery = `${query} jobs in ${location} hiring now`;
@@ -36,18 +37,24 @@ export async function POST(req: Request) {
     const data = await response.json();
     const allResults = data.organic || [];
 
-    // STRICT FILTER: Block garbage, keep ONLY trusted domains
+    // STRICT FILTER: Block garbage, block Director titles, keep ONLY trusted domains
     const filteredJobs = allResults.filter(job => {
       const url = (job.link || '').toLowerCase();
+      const title = (job.title || '').toLowerCase();
+      
       if (!url) return false;
       
       // 1. Block garbage explicitly
-      if (BLOCKED_DOMAINS.some(domain => url.includes(domain))) {
-        return false;
-      }
+      if (BLOCKED_DOMAINS.some(domain => url.includes(domain))) return false;
       
       // 2. Keep ONLY trusted domains
-      return TRUSTED_DOMAINS.some(domain => url.includes(domain));
+      const isTrusted = TRUSTED_DOMAINS.some(domain => url.includes(domain));
+      if (!isTrusted) return false;
+
+      // 3. Block any job that has "Director" in the title
+      if (title.includes('director')) return false;
+
+      return true;
     }).slice(0, 10);
 
     return NextResponse.json({ jobs: filteredJobs });
