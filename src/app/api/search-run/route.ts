@@ -16,48 +16,52 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     // Force Mid-Senior level and remove Director
-    let query = (body.query || 'Corporate Sales').replace(/director/gi, 'Mid Senior Level');
-    const location = body.location || 'Worldwide';
+    let baseQuery = (body.query || 'Corporate Sales').replace(/director/gi, 'Mid Senior Level');
+    
+    // HARDCODED LOCATIONS: Remote & Regular as requested
+    const locations = [
+      'Remote USA', 'Remote UK', 'Remote Canada', 'Remote Australia', 'Remote New Zealand',
+      'Qatar', 'UAE', 'Pakistan', 'Bahrain', 'Saudi Arabia', 'Oman', 'New Zealand', 'Canada'
+    ];
 
-    const searchQuery = `${query} jobs in ${location} hiring now`;
-
-    const response = await fetch('https://google.serper.dev/search', {
-      method: 'POST',
-      headers: {
-        'X-API-KEY': process.env.SERPER_API_KEY || '',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        q: searchQuery,
-        num: 20, 
-        tbs: 'qdr:m' // Past 30 days only
-      })
+    // Run all 13 location searches in parallel to save time
+    const searchPromises = locations.map(location => {
+      const searchQuery = `${baseQuery} jobs in ${location} hiring now`;
+      return fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': process.env.SERPER_API_KEY || '',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ q: searchQuery, num: 10, tbs: 'qdr:m' }) // Past 30 days
+      }).then(res => res.json()).catch(() => null);
     });
 
-    const data = await response.json();
-    const allResults = data.organic || [];
+    const results = await Promise.all(searchPromises);
+    let allFilteredJobs = [];
 
-    // STRICT FILTER: Block garbage, block Director titles, keep ONLY trusted domains
-    const filteredJobs = allResults.filter(job => {
-      const url = (job.link || '').toLowerCase();
-      const title = (job.title || '').toLowerCase();
+    for (const data of results) {
+      if (!data || !data.organic) continue;
       
-      if (!url) return false;
-      
-      // 1. Block garbage explicitly
-      if (BLOCKED_DOMAINS.some(domain => url.includes(domain))) return false;
-      
-      // 2. Keep ONLY trusted domains
-      const isTrusted = TRUSTED_DOMAINS.some(domain => url.includes(domain));
-      if (!isTrusted) return false;
+      const filteredJobs = data.organic.filter(job => {
+        const url = (job.link || '').toLowerCase();
+        const title = (job.title || '').toLowerCase();
+        
+        if (!url) return false;
+        if (BLOCKED_DOMAINS.some(domain => url.includes(domain))) return false;
+        if (!TRUSTED_DOMAINS.some(domain => url.includes(domain))) return false;
+        if (title.includes('director')) return false; // Block Director titles
 
-      // 3. Block any job that has "Director" in the title
-      if (title.includes('director')) return false;
+        return true;
+      });
 
-      return true;
-    }).slice(0, 10);
+      allFilteredJobs.push(...filteredJobs);
+    }
 
-    return NextResponse.json({ jobs: filteredJobs });
+    // Deduplicate by URL just in case
+    const uniqueJobs = Array.from(new Map(allFilteredJobs.map(job => [job.link, job])).values());
+
+    return NextResponse.json({ jobs: uniqueJobs });
 
   } catch (error) {
     console.error('Search Error:', error);
